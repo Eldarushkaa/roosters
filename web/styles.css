@@ -2240,3 +2240,62 @@ body::before {
 .last-battle-heading h2 { font-size: 17px; }
 .last-battle-outcome, .last-battle-summary, .last-battle-net, .last-battle-details { font-size: 14px; }
 .last-battle-card.loss .last-battle-outcome { color: var(--red); }
+
+/* Club icon and tactile language. Existing shell geometry remains authoritative. */
+:root { --motion-fast: 120ms; --motion-ui: 180ms; }
+.ui-icon { display: inline-block; width: 1em; height: 1em; flex: 0 0 auto; vertical-align: -.13em; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.brand-symbol { display: grid; place-items: center; border-radius: 12px; }
+.brand-symbol .ui-icon { width: 28px; height: 28px; }
+.nav-item > span[aria-hidden] { display: grid; place-items: center; }
+.nav-item .ui-icon { width: 22px; height: 22px; }
+.nav-item.active { font-weight: 700; }
+.nav-item.active .ui-icon { stroke-width: 2.8; }
+.language-switch [aria-pressed=true] { text-decoration: underline; text-underline-offset: 4px; }
+button { transition: transform var(--motion-fast) ease-out, background-color var(--motion-ui), color var(--motion-ui); }
+button:active:not(:disabled), .roost-screen .btn:not(:disabled):active { transform: scale(.985); transition-duration: 0s; }
+button:focus-visible, a:focus-visible, summary:focus-visible { outline-color: var(--accent); }
+.arena-home .stake-option[aria-pressed=true]::before { content: none; }
+.selection-check { display: none; }
+[aria-pressed=true] > .selection-check { display: inline; margin-right: 4px; }
+.selection-check .ui-icon { width: 12px; height: 12px; }
+.stake-option > .ui-icon { color: var(--accent); }
+.fighter-meta .ui-icon { width: 12px; height: 12px; margin-right: 2px; }
+#battle-tap-title .ui-icon { width: 16px; height: 16px; }
+.result-toast-close > .ui-icon { position: static; inset: auto; width: 22px; height: 22px; transform: none; stroke: currentColor; stroke-width: 2.2; }
+.result-toast-mark { display: inline-flex; align-items: center; }
+.result-toast-mark .ui-icon { width: 32px; height: 32px; }
+.notice .dismiss { display: grid; place-items: center; }
+.notice .dismiss .ui-icon { width: 20px; height: 20px; }
+.history-mark { background: none; border-radius: 0; }
+.history-mark.loss { background: none; color: var(--red); }
+.history-mark .ui-icon { width: 20px; height: 20px; }
+#balance { display: inline-block; }
+#balance.money-increase { color: var(--lime); }
+#balance.money-decrease { color: var(--red); }
+.battle-timer, .tap-score strong, .gear-benefit, .gear-next, .gear-multiplier, .roost-amount { font-variant-numeric: tabular-nums; }
+.battle-heading .eyebrow, .battle-mode .roulette .eyebrow { letter-spacing: .5px; }
+.loading-rooster, .radar:after { animation: none; }
+.loading-rooster .ui-icon { width: 48px; height: 48px; }
+.radar { border: 0; background: none; }
+.radar::before, .radar::after { content: none; }
+.radar .ui-icon { width: 40px; height: 40px; }
+/* The illustrated first visit keeps its order and emphasis, without glass/stars. */
+.hero, .first-fight, .mode-card.online { background: var(--panel); border-color: var(--line); border-radius: 20px; }
+.hero::before { content: none; }
+.rooster-svg { filter: none; }
+.power-badge { background: var(--bg); backdrop-filter: none; border: 0; border-radius: 8px; }
+.power-badge > .ui-icon { width: 20px; height: 20px; }
+.power-badge span, .hero-kicker, .first-fight .eyebrow { font-size: 12px; letter-spacing: .5px; }
+.hero p { font-size: 14px; line-height: 1.5; }
+.hero .tag { background: none; border: 0; padding: 0; border-radius: 0; font-size: 12px; }
+.hero .tag.accent { color: var(--text); }
+.hero-footer { gap: 8px; flex-wrap: wrap; }
+.mode-icon { width: auto; height: auto; background: none; border-radius: 0; }
+.online .mode-icon { background: none; color: var(--muted); }
+.mode-index { display: none; }
+.dev-banner { background: none; border: 0; padding: 0; font-size: 12px; line-height: 1.4; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.brand-sub { font-size: 8px; letter-spacing: .6px; }
+.app-footer { font-size: 12px; line-height: 1.5; }
+@media(prefers-reduced-motion:reduce) {
+  button:active:not(:disabled), .roost-screen .btn:not(:disabled):active, .battle-controls .battle-tap:active:not(:disabled) { transform: none; }
+}

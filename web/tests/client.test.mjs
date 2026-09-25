@@ -5,10 +5,13 @@ import { webcrypto } from 'node:crypto';
 import test from 'node:test';
 import vm from 'node:vm';
 import { createI18n, botNameKeys, LANGUAGE_STORAGE_KEY } from '../i18n.mjs';
+import { icon, iconText } from '../icons.mjs';
+import { createFeedback } from '../feedback.mjs';
 
 const source = (await readFile(new URL('../app.js', import.meta.url), 'utf8'))
   .replace(/^import .* from '\.\/i18n\.mjs';\n/m, '')
   .replace(/^import .* from '\.\/environment\.mjs';\n/m, '')
+  .replace(/^import .* from '\.\/(icons|feedback)\.mjs';\n/gm, '')
   .replace(/\nboot\(\);\s*$/, '\n');
 const playerState = (id = 'dev:tester') => ({
   server_time: Date.now() / 1000,
@@ -30,6 +33,7 @@ function harness({ fetch, entries = {}, localEntries = {}, initData = '' } = {})
   const listeners = new Map();
   const sandbox = {
     createAppEnvironment: () => ({ telegram: app, start() { app.ready(); app.expand(); }, onResume(callback) { listeners.set('visibilitychange', callback); } }),
+    icon, iconText, createFeedback: options => createFeedback({...options, win: {}, doc: {querySelector: () => null}}),
     crypto: webcrypto, Intl, URLSearchParams, AbortController, Date, console, createI18n, botNameKeys,
     fetch: fetch || (async () => { throw new Error('Unexpected fetch'); }),
     sessionStorage: store(session), localStorage: store(local),
@@ -207,12 +211,12 @@ test('Arena mode selection preserves the stake and changes only the chosen fight
   const html = env.client.renderArena();
   assert.match(html, /data-action="queue-join"/);
   assert.doesNotMatch(html, /data-action="start-bot"/);
-  assert.match(html, /47,5 ✦/);
-  assert.match(html, /−25 ✦/);
+  assert.match(html, /47,5 <svg[^>]+data-icon="coin"/);
+  assert.match(html, /−25 <svg[^>]+data-icon="coin"/);
   assert.equal(env.session.get('rooster.v1.arenaMode'), 'online');
   const restored = harness({ entries: Object.fromEntries(env.session) });
   restored.client.setState(state);
-  assert.match(restored.client.renderArena(), /Найти бой · 25 ✦/);
+  assert.match(restored.client.renderArena(), /Найти бой · 25 <svg[^>]+data-icon="coin"/);
 });
 
 test('first free battle is the primary action and no automatic upgrade is offered', () => {
@@ -370,7 +374,7 @@ test('all English screen renderers translate catalog IDs while preserving actual
   assert.match(env.client.renderGear(), /Sword/);
   assert.equal(env.client.fighterName({ name: 'Клювдиатор', is_bot: false }), 'Клювдиатор');
   assert.notEqual(env.client.fighterName({ name: 'Клювдиатор', is_bot: true }), 'Клювдиатор');
-  assert.match(env.client.renderResult(result), /Net: \+9 ✦/);
+  assert.match(env.client.renderResult(result), /Net: \+9 <svg[^>]+data-icon="coin"/);
   assert.match(env.client.renderResult(result), /Payout 19/);
 });
 
