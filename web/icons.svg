@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg">
+  <!-- Club marks: 24 px grid, 2.2 px strokes, clipped corners and rounded joins. -->
+  <symbol id="arena" viewBox="0 0 24 24"><path d="m4 3 4 1 12 15-2 2L5 7 4 3Zm16 0-4 1-4 5M9 13l-5 6 2 2 5-6M3 16l5 5m8-1 5-4"/></symbol>
+  <symbol id="gear" viewBox="0 0 24 24"><path d="M4 15v-4a8 8 0 0 1 16 0v4h-5v6H9v-6H4ZM12 3v9M5 11h3m8 0h3"/></symbol>
+  <symbol id="roost" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7M5 9v12h14V9M9 21v-7h6v7M12 3V1"/></symbol>
+  <symbol id="trophy" viewBox="0 0 24 24"><path d="M7 4h10v5c0 4-2 6-5 6s-5-2-5-6V4ZM7 6H3v3c0 2 2 3 5 3m9-6h4v3c0 2-2 3-5 3M12 15v5m-4 1h8"/></symbol>
+  <symbol id="power" viewBox="0 0 24 24"><path d="m14 2-9 12h6l-1 8 9-12h-6l1-8Z"/></symbol>
+  <symbol id="coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m12 6-4 6 4 6 4-6-4-6Z"/></symbol>
+  <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 5 5L20 6"/></symbol>
+  <symbol id="close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="arrow-up-right" viewBox="0 0 24 24"><path d="M6 18 18 6M6 6h12v12"/></symbol>
+  <symbol id="arrow-right" viewBox="0 0 24 24"><path d="M4 12h16m-7-7 7 7-7 7"/></symbol>
+  <symbol id="arrow-down" viewBox="0 0 24 24"><path d="M12 4v16m-7-7 7 7 7-7"/></symbol>
+  <symbol id="feather" viewBox="0 0 24 24"><path d="M5 19C2 9 10 2 20 3c1 9-4 17-13 16M3 22 16 8m-7 8h7M12 12V7"/></symbol>
+  <symbol id="rooster" viewBox="0 0 24 24"><path d="m7 8-1-5 4 2 2-4 3 5 4-1-1 5 4 3-5 2v6H5v-8l2-5Z"/><path d="M13 10h.01M7 17h4"/></symbol>
+  <symbol id="refresh" viewBox="0 0 24 24"><path d="M20 4v6h-6M4 20v-6h6M19 9a7 7 0 0 0-12-3L4 9m1 6a7 7 0 0 0 12 3l3-3"/></symbol>
+  <symbol id="alert" viewBox="0 0 24 24"><path d="m12 3 10 18H2L12 3Zm0 6v5m0 3v.01"/></symbol>
+</svg>
