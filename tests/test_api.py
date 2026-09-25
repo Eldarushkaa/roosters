@@ -145,6 +145,46 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json["error"]["code"], "unknown_command")
 
+    def test_read_only_custom_quote_needs_auth_but_no_command_key(self):
+        path = "/api/v1/battle/quote?stake_minor=12345"
+        self.assertEqual(self.client.get(path).status_code, 401)
+        response = self.client.get(path, headers={"Authorization": "Bearer " + self.token})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(response.json, {"rules_version": "v6", "power": 100, "stake_minor": 12345,
+                                        "bot": {"min_payout_minor": 18887, "max_payout_minor": 26665},
+                                        "online": {"win_payout_minor": 23455}})
+        state = self.client.get("/api/v1/state", headers=self.headers()).json
+        self.assertEqual(state["economy"]["stake_limits"], {"min_minor": 1000, "max_minor": 42000, "step_minor": 1})
+        self.assertTrue(state["economy"]["first_free_battle_available"])
+        self.assertIsNone(state["battle"])
+        with self.app.extensions["database"].transaction() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM commands").fetchone()[0], 0)
+
+    def test_quote_rejects_ambiguous_query_and_fractional_or_unfunded_stakes(self):
+        invalid = ["", "stake_minor=1000&stake_minor=1001", "stake_minor=1000&power=100",
+                   "stake_minor=1000.0", "stake_minor=1e3", "stake_minor=true", "stake_minor=-1000",
+                   "stake_minor=", "stake_minor=999", "stake_minor=0", "stake_minor=%201000",
+                   "stake_minor=%2B1000", "stake_minor=999999999999999999999999999999"]
+        for query in invalid:
+            with self.subTest(query=query):
+                result = self.client.get("/api/v1/battle/quote?" + query, headers=self.headers())
+                self.assertEqual(result.status_code, 400)
+        result = self.client.get("/api/v1/battle/quote?stake_minor=42001", headers=self.headers())
+        self.assertEqual(result.status_code, 409)
+        self.assertEqual(result.json["error"]["code"], "insufficient_funds")
+
+    def test_custom_stake_transport_accepts_integer_minor_units_and_rejects_fractional_json(self):
+        for invalid in (True, 1001.0, 999, None, "1001"):
+            response = self.client.post("/api/v1/battle/start",
+                json={"mode": "bot", "stake_minor": invalid, "expected_power": 100}, headers=self.headers())
+            self.assertEqual(response.status_code, 400)
+        response = self.client.post("/api/v1/battle/start",
+            json={"mode": "bot", "stake_minor": 42000, "expected_power": 100}, headers=self.headers())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["state"]["player"]["balance_minor"], 0)
+        self.assertEqual(response.json["state"]["battle"]["wager"]["stake_minor"], 42000)
+
 
 class ConfigTests(unittest.TestCase):
     def test_production_fails_closed(self):

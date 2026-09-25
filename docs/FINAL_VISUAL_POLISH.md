@@ -1,5 +1,10 @@
 # Final visual polish — 2026-09-25
 
+Historical report from before the approved blue illustrated direction. Its subdued
+surface and icon recommendations are superseded by [DESIGN.md](../DESIGN.md).
+For current work use the [design handoff](design/README.md); the later completed
+consistency pass is recorded in [design/FINAL-POLISH.md](design/FINAL-POLISH.md).
+
 Scope: presentation after the redesign and consistency review. Followed `DESIGN.md`,
 `frontend-design` and `telegram-miniapp-design`. The existing screen order, actions,
 server commands, prices, rewards, rules, localization meaning and Telegram shell

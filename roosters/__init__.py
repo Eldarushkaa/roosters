@@ -150,6 +150,18 @@ def create_app(settings=None, *, clock=None, random_float=None):
     def leaderboard():
         return jsonify(service.leaderboard(g.player_id))
 
+    @app.get("/api/v1/battle/quote")
+    @authenticated
+    def battle_quote():
+        if set(request.args) != {"stake_minor"} or len(request.args.getlist("stake_minor")) != 1:
+            raise GameError("invalid_payload", "Передайте одну ставку stake_minor.")
+        amount = request.args["stake_minor"]
+        # Avoid float parsing, duplicate query keys, unbounded integers and
+        # acceptance of spaces/signs/exponents as a monetary representation.
+        if not re.fullmatch(r"[0-9]{1,16}", amount):
+            raise GameError("invalid_stake", "Передайте ставку целым числом сотых долей монеты.")
+        return jsonify(service.battle_quote(g.player_id, int(amount)))
+
     @app.post("/api/v1/<path:operation>")
     @authenticated
     def command(operation):

@@ -1,5 +1,9 @@
 # Mini App frontend
 
+For new UI work, start with the [current design handoff](../docs/design/README.md)
+and [visual specification](../DESIGN.md). The handoff maps screen/shared ownership,
+test commands and the distinction between live Arena and the isolated preview.
+
 The Flask application serves `index.html` at `/` and these assets under `/static/`.
 There is no build step, external font, package install, or frontend secret. The
 only external script is Telegram's official Mini App bridge.
@@ -10,14 +14,42 @@ layout events. `app.js` is a browser ES module with four areas: authenticated AP
 write recovery; authoritative state/rendering; screen renderers; UI/timer event
 handlers. It imports the dependency-free `i18n.mjs` translation catalog.
 `styles.css` provides responsive layouts from 320 px, visible keyboard
-focus, safe-area spacing, and reduced-motion support. The rooster, equipment,
-and favicon are original inline SVG artwork.
+focus, safe-area spacing, and reduced-motion support. Arena uses the approved
+WebP background and hero; Battle, Gear and Roost keep their existing inline SVG
+artwork. The favicon is a standalone export of the shared rooster icon.
+
+## Shared visual foundation and final consistency pass
+
+`foundation.css` provides opt-in illustrated `ui-*` components and `--ui-*`
+tokens. It is loaded after the legacy styles. The approved Arena preview and
+production bottom navigation use the same primitives, local display font and
+`icons.svg` sprite. Gear, Roost and Rankings now reuse those components with
+layout-only `gear.css`, `roost.css` and `rankings.css`. Battle preparation and play
+use `battle.css`; the result notice uses
+`battle-result.css`. The actual stylesheet order is `styles`, `gear`, `roost`,
+`rankings`, `foundation`, `shell`, `arena`, `battle`, `battle-result`, `guide`; do not assume
+every composition stylesheet follows the foundation. Battle
+retains its half-viewport tap area and scrolling overview; its title/timer share
+the header row with language controls. `arena.css` now applies shared components
+to the existing production Arena, queue and history layout; `shell.css` aligns
+the header, wallet, loading/error states and notices. The `ui-shell` environment
+stays active on every screen and before authentication. Telegram's environment
+module retains runtime ownership. Production Arena renders the approved background
+and hero from `assets/arena/` through `renderArenaScene(player, onboarding)` and
+`.arena-scene`: a wooden breed nameplate and live level, power and XP accompany the
+illustration. On first launch, the scene follows the existing free-battle CTA.
+The preview remains an isolated fixture; its demonstration economy is not imported.
+See [the final review](../docs/design/FINAL-POLISH.md),
+[Wave 3](../docs/design/WAVE3.md),
+[Wave 2](../docs/design/WAVE2.md) and
+[the component/token catalog and historical Wave 1 boundary](../docs/design/FOUNDATION.md).
 
 ## Languages
 
 The header's RU/EN buttons switch the complete interface, including loading and
 sign-in errors, all four screens, battle/reveal/result text, help, notices,
 accessibility labels, equipment and breed descriptions. Russian is the default.
+
 The preference lives in `localStorage` under `rooster.v1.language`; denied storage
 still permits switching for the current document. Number, coin and date formats
 follow the selected locale (`ru-RU` or `en-US`), with dates in the device timezone.
@@ -39,13 +71,47 @@ Russian success prose map to their operation's known message key. During combat,
 only preserved fighters' text labels and SVG accessibility labels are refreshed;
 motion wrappers, animations and Space input remain intact.
 
+The current `bot` mode is labeled `Тренировка` / `Training` throughout the UI.
+Its API mode, v6 rules, stake and payouts are unchanged; paid training can lose
+the stake. Archived `practice` battles retain their separate legacy meaning.
+
+## Quick guide
+
+`guide.mjs` owns the informational modal through
+`createGuide({overlay, dialog, trigger, background, storage, getContent,
+getLanguage, fallbackFocus, doc})`. `sync({available, autoAllowed})` controls
+availability and deferred automatic opening; `open()`, `close()` and `isOpen()`
+support the header control and app lifecycle. The guide sends no game command.
+`guide.css` owns its layout; `renderGuideContent` and `syncGuide` in `app.js` own
+localized content and eligibility. `index.html` owns the header trigger and
+overlay hosts. Game actions stay blocked while the guide is open.
+
+On the first browser launch, automatic opening waits for authentication and
+pending-command recovery. Active battles, matchmaking, unfinished commands and
+the result toast defer it. Manual opening is allowed during matchmaking, but
+the trigger is unavailable during combat. A newly active battle closes an open
+guide without marking it seen. Explicit closing records `1` under
+`rooster.v1.guideSeen.v1` in localStorage, so it stays dismissed across reloads
+in that browser; unavailable storage falls back to this document's memory.
+
+The modal makes the app background inert, traps Tab focus, supports Escape and
+explicit close controls, and restores focus on close. Its text region accepts
+keyboard focus so PageDown can scroll it on short screens while the cross and
+footer remain available. Language changes refresh
+its copy while preserving focus and reading position; state polls preserve the
+open modal DOM. Its short steps cover training/coins, server-provided tap and
+duration limits, gear/breed power, and online progression; Roost rewards remain
+an informational footer. The guide does not promise a win or invent rewards.
+
 ## State and recovery
 
 - Active battles use a focused viewport layout from preparation until the server
   returns a finished battle. Global navigation, the wallet and other shell chrome
   are suppressed; language selection remains available. The tap controls occupy
-  a reserved bottom grid row, while fight details, help and the previous result
-  scroll above it. The shared environment tokens bound the layout. All screens
+  a reserved bottom grid row. The full-width tap button takes half the viewport
+  height after Telegram safe-area insets; fight details scroll above it on short
+  screens. Closing-game help and the previous result are omitted during battle.
+  The shared environment tokens bound the layout. All screens
   support live light/dark themes without replacing fighters or resetting scroll.
 - Telegram `initData` is sent unchanged to the backend for validation. No trust
   is placed in `initDataUnsafe`. Browser accounts exist only when `/config`
@@ -89,27 +155,70 @@ motion wrappers, animations and Space input remain intact.
 - There is one balance, represented by integer minor units (100 = one coin).
   Coin formatting uses at most two decimal places. Stakes and payouts remain
   server-authoritative. New players see the one-time free introduction before
-  the hero; after it, the bot mode offers stakes of 10/25/50/100 coins. Online
-  matches require equal stakes and award 95% of the combined pool to the winner.
+  the hero. Both paid modes offer a slider from 10 coins to the available balance
+  in 0.01-coin steps, with 10/25/50/100 quick choices. Online
+  matches accept different stakes and powers within the same account scope
+  (Telegram or development). Each player's win payout is `floor(1.9 × own stake)`
+  in minor units, including the stake. The UI reads it from
+  `economy.online_quotes` (`stake_minor`, `win_payout_minor`) instead of calculating
+  it from a shared pool. `catalog.battle.pvp_win_multiplier` replaces the old
+  `pvp_pool_return`. Power and accepted taps change the win probability and
+  expected return; the opponent's stake does not change the personal payout.
+  Current bot RTP rises from 90% without taps to 110% at 90 accepted taps before
+  payout rounding; the catalog owns these limits. At equal power this means a
+  win chance from 50% to 61.11%. Already-started v5/v4/v3 battles retain their rules.
+- `economy.stake_limits` supplies `min_minor`, `max_minor`, and `step_minor`.
+  The server caps `max_minor` by available balance and arithmetic/storage limits;
+  the client does not independently extend that maximum.
+  The native `#arena-stake-range` input uses integer minor units, with
+  `data-action="stake-range"` and `data-focus="stake-range"`; its caption is
+  `#arena-stake-value`. Input updates the selected amount immediately without a
+  mutation. Quick choices synchronize the slider; choices above the available
+  balance are disabled. The upper end includes every available minor unit, so
+  a fractional balance can be selected in full. Below the minimum, paid starts
+  and stake controls are disabled. A falling balance clamps the selection;
+  polling and language changes retain the range node and the valid selection.
+  `renderKeepingStakeRange` keeps the native input and its ancestor path attached
+  while updating sibling content, so a poll does not interrupt an active drag.
+  `stakeSelectionBlocked` allows local selection during a pending `/presence`
+  heartbeat. Paid commands remain serialized and blocked until it completes;
+  custom quote loading resumes afterwards. Other pending commands still block
+  selection, and no selection rewrites a pending request.
+- Preset quotes remain in state. Arbitrary stakes use authenticated
+  `GET /battle/quote?stake_minor=N`, returning `rules_version`, `power`,
+  `stake_minor`, `bot: {min_payout_minor, max_payout_minor}` and
+  `online: {win_payout_minor}`. Requests are debounced, and obsolete responses
+  cannot replace the current stake/power quote. Paid starts wait for a current
+  server quote. An error exposes `retry-stake-quote`; retrying only reads a quote.
+  Neither quote lookup nor a balance-driven selection adjustment rewrites the
+  body or UUID of a pending battle command.
 - Bot starts send `mode`, `stake_minor`, and `expected_power`; matchmaking sends
-  `stake_minor`. Before committing, the bot card discloses the server's payout
-  range and possible loss. The selected opponent and exact prize are fixed once
+  `stake_minor`. A question button at the top right of each mode tile opens its
+  payout, possible loss and explanation in the shared in-flow
+  `#arena-mode-help` panel inside `.arena-setup`. These details are hidden by
+  default. The question and mode controls are sibling buttons: `mode-help`
+  carries `data-mode`, `data-focus="help-bot|help-online"`, `aria-expanded` and
+  `aria-controls="arena-mode-help"`; it does not select a mode, change a stake,
+  or send a request. Repeating the question, closing the panel, pressing Escape,
+  or switching mode closes help. A close returns focus to the question. Polling
+  and language changes preserve open help, and a stake change updates its server
+  quote. The first-free screen offers the same help for its online alternative.
+  The selected bot opponent and exact prize are fixed once
   by the server. The two-second reveal is cosmetic, lands on the saved power,
   resumes from the saved deadline on reload, and honors reduced motion. Exact
   prize stays visible throughout preparation. There is no reroll control.
 - The result shows both gross payout and net change. It never automatically
   buys or suggests an upgrade. Gear remains a separate user-selected action.
-  A compact, non-dismissible Last Battle card uses the latest completed server
-  battle/history, survives reload, and stays below the combat or queue view
-  until the next result replaces it. Old local dismissal flags are ignored.
-  A separate victory/defeat notice closes with its cross or four seconds after
-  first display. The ring around the cross drains against the same deadline;
+  Arena and the queue no longer render a persistent Last Battle card. Completed
+  results remain in server history. The victory/defeat notice closes with its
+  cross or four seconds after first display. The ring around the cross drains
+  against the same deadline;
   polling, changing tabs and switching language never restart the timer.
   `sessionStorage` remembers the last observed result for each player, preventing
   a repeat notice after reload in the same tab. With storage denied, this
   protection lasts only for the current document. Results first observed while
   another battle or search is active are marked as seen without a popup.
-  Closing the notice never changes a reward or removes the persistent card.
+  Closing the notice never changes a reward or removes history.
 - Breed multipliers apply to the whole sum of base, level and equipment power;
   the server rounds the final value down once. The active battle displays
   `current_win_probability` after preparation, using server-accepted taps.
@@ -142,6 +251,22 @@ scroll preservation, reload from another tab, lost tap response/retry, the tap
 cap, and restored navigation after settlement. Screenshots go to
 `artifacts/battle-layout`. Native Telegram gestures still require device review.
 
+`python -m scripts.check_stake_browser` uses a disposable backend to check custom
+quote loading, late responses, failure/retry without mutations, bot commitment,
+balance clamping, reload, decimal all-in PvP payouts and the minimum boundary.
+Screenshots go to `artifacts/stake-review`. The Arena checker owns the RU/EN,
+theme and mobile-size matrix, including actual range dragging and keyboard input
+through polling and language changes.
+
+`python -m scripts.check_guide_browser` checks first-launch opening, explicit
+dismissal/reload, browser-wide seen state, manual reopening, focus trapping and
+restoration, background inertness, scrolling, RU/EN and five mobile sizes in
+both themes. It also checks battle/queue deferral without game POSTs. Its
+screenshots go to `artifacts/guide-review`; native Telegram behavior still needs
+device review. Node guide tests cover denied storage and lifecycle behavior;
+client integration tests cover deferred pending-command recovery and unchanged
+UUID/body, catalog-driven copy, and blocking game actions while open.
+
 The dependency-free Node regressions cover response loss, server errors,
 definite business conflicts, authentication refresh failures, session reuse,
 development/Telegram identity separation, and the simplified battle contract.
@@ -157,11 +282,18 @@ The v4 Node additions check breed multiplier text, rendering a server-supplied
 chance with a 90-tap limit, and notice dismissal/deadline/reload behavior. The
 older batch regression still uses an 80-tap fixture; the current 90-tap flow
 is exercised through the real API in Chrome.
+The v5 checks cover local mode help without transport, quote/state preservation
+across polls, stake and language changes, independent online quotes, and removal
+of the persistent result from Arena and queue while retaining history and toast.
+The v6 checks cover exact custom stakes, authoritative quote requests and retries,
+out-of-order responses, disabled unaffordable choices, balance clamping, and
+unchanged pending command UUIDs/bodies. Browser checks cover range-node retention
+while polling or changing locale, including mobile pointer/keyboard interaction.
 
 `python -m scripts.check_browser` uses a temporary database and checks RU/EN in
 Chrome, including all four English screens, reload persistence, a 320 px header,
-the compact Last Battle card, and switching during a paused combat animation
-without replacing fighter nodes or sending extra taps. The v4 scenarios also
+absence of the old Last Battle card, and switching during a paused combat
+animation without replacing fighter nodes or sending extra taps. The scenarios also
 send all 90 taps in one request, check increasing server odds, purchase a breed
 that multiplies 110 power to 132, and verify the four-second notice, draining
 ring, manual close and protection against repeated display. Install optional browser
@@ -187,13 +319,13 @@ localized loading screen is available and `expand()` once. Boot retries and
 resume do not repeatedly expand the app. No fullscreen request is made.
 
 `environment.mjs` treats an SDK with an unknown platform and empty launch data as
-a normal browser. Telegram's `colorScheme` and `themeParams` supply semantic
-`--bg`, `--panel`, `--panel-light`, `--text`, `--muted`, and `--line` tokens.
-Incomplete or inverted surfaces fall back to the warm Roosters palette; primary,
-muted and semantic status text are checked against all three surfaces at 4.5:1.
-Amber remains the action fill; `--accent` is its readable text counterpart.
-Browser fallback follows `prefers-color-scheme`, including live changes.
-`themeChanged` only updates root tokens and surrounding native chrome.
+a normal browser. Telegram's `colorScheme` and browser `prefers-color-scheme`
+still set the native theme identity, including live changes. The semantic game
+colors and native header/background/bottom-bar colors are resolved from the
+shared `--ui-*` CSS roles in both themes. This prevents native chrome and initial
+loading from reverting to the old charcoal/beige palette. If shared CSS is absent,
+the existing contrast-checked Telegram palette remains a fallback. `themeChanged`
+only updates root tokens and surrounding native chrome; no game state is changed.
 
 Native calls are feature-detected, version-gated and guarded against bridge
 exceptions. Header/background setters require 6.1; headers use `bg_color` on
@@ -206,7 +338,9 @@ API version boundaries: https://core.telegram.org/bots/webapps
 as a fallback, and browser `100dvh` outside Telegram. Unstable `viewportChanged`
 events are ignored; browser resize does not override Telegram's stable height.
 Short-screen variants follow the settled height minus native insets, rather than transient media
-query changes. Bottom navigation is positioned from this stable height; Battle
+query changes. Arena uses its dense setup through 700px of usable settled height
+to accommodate outlined controls while retaining the action above navigation at
+360×560. Battle's existing 650px threshold is unchanged. Bottom navigation is positioned from this stable height; Battle
 keeps its existing reserved control row and scrollable overview. During a native
 resize gesture the app waits for the settled event instead of chasing its edge.
 
@@ -245,8 +379,8 @@ resizes, chrome appearance and resume behavior still need physical iOS/Android
 
 Gear uses a compact current-fighter summary, vertical `renderUpgradeRow` items,
 then illustrated `renderBreedChoice` entries. Existing rooster/equipment SVGs,
-`.btn` / `.btn.primary`, theme tokens and the locale-aware `money()` formatter
-are reused. `renderGearAction` shares price, availability and retry presentation
+shared `ui-*` panels/buttons/badges, `--ui-*` tokens and the locale-aware `money()`
+formatter are reused. `renderGearAction` shares price, availability and retry presentation
 between upgrades and breeds; these helpers stay local to Gear. The old
 `equipment-grid` selector remains for existing browser regressions, with no
 three-column styling.

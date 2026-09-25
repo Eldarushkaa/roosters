@@ -47,6 +47,7 @@ def exercise(browser, url, artifacts):
                 context.route('https://telegram.org/js/telegram-web-app.js', lambda route: route.fulfill(status=200, content_type='application/javascript', body=BRIDGE.replace('SCHEME', json.dumps(scheme))))
                 context.add_init_script("localStorage.setItem('rooster.v1.language', %s)" % json.dumps(language))
                 context.add_init_script('const snapshotTime = Date.now(); Date.now = () => snapshotTime;')
+                context.add_init_script("localStorage.setItem('rooster.v1.guideSeen.v1', '1')")
                 page = context.new_page()
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 held, requests = [], []

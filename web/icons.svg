@@ -1,19 +1,89 @@
 <svg xmlns="http://www.w3.org/2000/svg">
-  <!-- Club marks: 24 px grid, 2.2 px strokes, clipped corners and rounded joins. -->
-  <symbol id="arena" viewBox="0 0 24 24"><path d="m4 3 4 1 12 15-2 2L5 7 4 3Zm16 0-4 1-4 5M9 13l-5 6 2 2 5-6M3 16l5 5m8-1 5-4"/></symbol>
-  <symbol id="gear" viewBox="0 0 24 24"><path d="M4 15v-4a8 8 0 0 1 16 0v4h-5v6H9v-6H4ZM12 3v9M5 11h3m8 0h3"/></symbol>
-  <symbol id="roost" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7M5 9v12h14V9M9 21v-7h6v7M12 3V1"/></symbol>
-  <symbol id="trophy" viewBox="0 0 24 24"><path d="M7 4h10v5c0 4-2 6-5 6s-5-2-5-6V4ZM7 6H3v3c0 2 2 3 5 3m9-6h4v3c0 2-2 3-5 3M12 15v5m-4 1h8"/></symbol>
-  <symbol id="power" viewBox="0 0 24 24"><path d="m14 2-9 12h6l-1 8 9-12h-6l1-8Z"/></symbol>
-  <symbol id="coin" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m12 6-4 6 4 6 4-6-4-6Z"/></symbol>
-  <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 5 5L20 6"/></symbol>
-  <symbol id="close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
-  <symbol id="arrow-up-right" viewBox="0 0 24 24"><path d="M6 18 18 6M6 6h12v12"/></symbol>
-  <symbol id="arrow-right" viewBox="0 0 24 24"><path d="M4 12h16m-7-7 7 7-7 7"/></symbol>
-  <symbol id="arrow-down" viewBox="0 0 24 24"><path d="M12 4v16m-7-7 7 7 7-7"/></symbol>
-  <symbol id="feather" viewBox="0 0 24 24"><path d="M5 19C2 9 10 2 20 3c1 9-4 17-13 16M3 22 16 8m-7 8h7M12 12V7"/></symbol>
-  <symbol id="rooster" viewBox="0 0 24 24"><path d="m7 8-1-5 4 2 2-4 3 5 4-1-1 5 4 3-5 2v6H5v-8l2-5Z"/><path d="M13 10h.01M7 17h4"/></symbol>
-  <symbol id="refresh" viewBox="0 0 24 24"><path d="M20 4v6h-6M4 20v-6h6M19 9a7 7 0 0 0-12-3L4 9m1 6a7 7 0 0 0 12 3l3-3"/></symbol>
-  <symbol id="alert" viewBox="0 0 24 24"><path d="m12 3 10 18H2L12 3Zm0 6v5m0 3v.01"/></symbol>
-<symbol id="search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></symbol>
+  <!-- Shared 24px game marks: blue steel, gold, crisp ink outlines and light bevels.
+       Functional strokes use currentColor; every symbol defines its own paint so
+       legacy shell CSS cannot change colored geometry. No text or game values. -->
+  <symbol id="coin" viewBox="0 0 24 24" fill="none" stroke="none">
+    <circle cx="12" cy="12" r="10.5" fill="#ff9c08" stroke="#081b36" stroke-width="2"/>
+    <circle cx="12" cy="11.5" r="7.8" fill="#ffd934" stroke="#fff58a" stroke-width="1.6"/>
+    <path d="m12 5-4.4 6.5L12 18l4.4-6.5Z" fill="#ef8800" stroke="#7d3e04" stroke-width=".8"/>
+    <path d="m12 5 0 7-4.4-.5Z" fill="#fff281"/>
+  </symbol>
+  <symbol id="swords" viewBox="0 0 24 24" fill="none" stroke="none">
+    <g stroke="#081b36" stroke-width="1.7" stroke-linejoin="round">
+      <path d="m4 2 4 1 13 16-3 3L5 7Z" fill="#a6e8ff"/>
+      <path d="m20 2-4 1L3 19l3 3L19 7Z" fill="#b9eeff"/>
+      <path d="m4 2 14 17M20 2 6 19" stroke="#fff" stroke-width="1"/>
+      <path d="m3 16 5 5 2-2-5-5Zm11 3 2 2 5-5-2-2Z" fill="#ffc426"/>
+      <path d="m4 19-2 3 2 1 3-3m10 0 3 3 2-1-2-3" fill="#ef8510"/>
+    </g>
+  </symbol>
+  <!-- Keep the historic navigation ID; both names share a single drawing. -->
+  <symbol id="arena" viewBox="0 0 24 24"><use href="#swords"/></symbol>
+  <symbol id="gear" viewBox="0 0 24 24" fill="none" stroke="none">
+    <path d="M4 15v-4a8 8 0 0 1 16 0v4h-5v6H9v-6Z" fill="#79caff" stroke="#081b36" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M12 4v8M5 11h3m8 0h3" stroke="#112746" stroke-width="2"/>
+    <path d="M6 9q1-4 4-4m4 0q3 0 4 4" stroke="#ddf8ff" stroke-width="1.5"/>
+    <path d="m9 17 3 2 3-2v4H9Z" fill="#daefff"/>
+  </symbol>
+  <symbol id="roost" viewBox="0 0 24 24" fill="none" stroke="none">
+    <path d="M5 9v12h14V9L12 3Z" fill="#ffc02d" stroke="#081b36" stroke-width="2"/>
+    <path d="m2 10 10-9 10 9-3 3-7-6-7 6Z" fill="#ff5547" stroke="#081b36" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="m5 9 7-6 7 6" stroke="#ffad65" stroke-width="1.5"/>
+    <path d="M9 21v-6q3-4 6 0v6Z" fill="#6c351b" stroke="#081b36" stroke-width="1.7"/>
+  </symbol>
+  <symbol id="trophy" viewBox="0 0 24 24" fill="none" stroke="none">
+    <g stroke="#081b36" stroke-width="1.8" stroke-linejoin="round">
+      <path d="M7 6H2v4q0 4 7 4m8-8h5v4q0 4-7 4" fill="#ffb110"/>
+      <path d="M7 3h10v6c0 4-2 6-5 6S7 13 7 9Z" fill="#ffcf22"/>
+      <path d="M10 15h4v4l3 1v2H7v-2l3-1Z" fill="#ffac05"/>
+    </g>
+    <path d="M9 5v4q0 3 2 3" stroke="#fff59a" stroke-width="1.8" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="bot" viewBox="0 0 24 24" fill="none" stroke="none">
+    <g transform="scale(.5)">
+      <g stroke="#081b36" stroke-width="3" stroke-linejoin="round">
+        <path d="M23 10V4h5v7" fill="#9bdeff"/>
+        <rect x="2" y="22" width="44" height="17" rx="4" fill="#138ddd"/>
+        <rect x="7" y="12" width="34" height="32" rx="9" fill="#73caff"/>
+        <rect x="12" y="20" width="24" height="16" rx="6" fill="#064b8f"/>
+        <ellipse cx="24" cy="28" rx="6" ry="8" fill="#ff3d49"/>
+      </g>
+      <path d="M13 17q7-4 16-2" stroke="#d9f6ff" stroke-width="3" stroke-linecap="round"/>
+      <ellipse cx="23" cy="26" rx="2" ry="3" fill="#fff"/>
+    </g>
+  </symbol>
+  <symbol id="rooster" viewBox="0 0 24 24" fill="none" stroke="none">
+    <path d="m7 8-1-5 4 2 2-4 3 5 4-1-1 5 4 3-5 2v6H5v-8l2-5Z" fill="#ffc923" stroke="#081b36" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M13 10h.01M7 17h4" stroke="#081b36" stroke-width="2.5" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="power" viewBox="0 0 24 24" fill="none" stroke="none">
+    <path d="m14 2-9 12h6l-1 8 9-12h-6l1-8Z" fill="#ffd934" stroke="#081b36" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="m12 6-4 6h4" stroke="#fff58a" stroke-width="1.2" stroke-linejoin="round"/>
+  </symbol>
+  <symbol id="feather" viewBox="0 0 24 24" fill="none" stroke="none">
+    <path d="M5 19C2 9 10 2 20 3c1 9-4 17-13 16Z" fill="#79caff" stroke="#081b36" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M3 22 16 8m-7 8h7M12 12V7" stroke="#081b36" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M7 11q3-5 9-5" stroke="#ddf8ff" stroke-width="1.5" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="info" viewBox="0 0 24 24" fill="none" stroke="none">
+    <circle cx="12" cy="12" r="10" fill="#8bd0ff" stroke="#081b36" stroke-width="1.8"/>
+    <path d="M12 11v6m0-10v.1" stroke="#081b36" stroke-width="3" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="document" viewBox="0 0 24 24" fill="none" stroke="none">
+    <path d="M5 2h10l4 4v16H5Z" fill="#a8ddff" stroke="#081b36" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M14 2v5h5M8 10h8m-8 4h8m-8 4h6" stroke="#135aac" stroke-width="1.8"/>
+  </symbol>
+  <symbol id="alert" viewBox="0 0 24 24" fill="none" stroke="none">
+    <path d="m12 3 10 18H2L12 3Z" fill="#ffd934" stroke="#081b36" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M12 9v5m0 3v.01" stroke="#081b36" stroke-width="2.5" stroke-linecap="round"/>
+  </symbol>
+  <!-- Small action marks inherit the surrounding text color for contrast in every state. -->
+  <symbol id="check" viewBox="0 0 24 24"><path d="m5 12 5 5L20 6" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></symbol>
+  <symbol id="arrow-up-right" viewBox="0 0 24 24"><path d="M5 19 19 5M7 5h12v12" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="arrow" viewBox="0 0 24 24"><use href="#arrow-up-right"/></symbol>
+  <symbol id="arrow-right" viewBox="0 0 24 24"><path d="M4 12h16m-7-7 7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="arrow-down" viewBox="0 0 24 24"><path d="M12 4v16m-7-7 7 7 7-7" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="refresh" viewBox="0 0 24 24"><path d="M20 4v6h-6M4 20v-6h6M19 9a7 7 0 0 0-12-3L4 9m1 6a7 7 0 0 0 12 3l3-3" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></g></symbol>
 </svg>

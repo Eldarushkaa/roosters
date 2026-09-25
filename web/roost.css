@@ -1,0 +1,37 @@
+/* Wave 2 Roost composition. All surfaces, controls, colors and states are shared ui-* components. */
+.roost-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-2); }
+.roost-heading > div:first-child { min-width: 0; }
+.roost-heading .roost-home-label { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-2); margin-top: var(--ui-space-2); }
+.roost-portrait { flex: 0 0 68px; width: 68px; }
+.roost-portrait .rooster-svg { display: block; width: 100%; height: auto; animation: none; filter: none; }
+.roost-reward { display: grid; gap: var(--ui-space-3); }
+.roost-treasure { display: flex; align-items: center; gap: var(--ui-space-3); min-width: 0; }
+.roost-treasure > .ui-icon { width: 44px; height: 44px; }
+.roost-amount { min-width: 0; font-size: var(--ui-text-headline); line-height: var(--ui-leading-title); font-variant-numeric: tabular-nums; overflow-wrap: normal; }
+.roost-amount > span { display: block; margin-top: var(--ui-space-1); font: var(--ui-text-sm)/var(--ui-leading-body) var(--ui-font-body); -webkit-text-stroke: 0; text-shadow: none; }
+.roost-description { font-size: var(--ui-text-sm); }
+.roost-description.ui-status { display: flex; align-items: flex-start; gap: var(--ui-space-2); }
+.roost-description > .ui-icon { width: 20px; height: 20px; }
+.roost-description strong { display: block; margin-top: var(--ui-space-1); }
+.roost-reward > .ui-button, .roost-invite-actions > .ui-button { width: 100%; white-space: normal; }
+.roost-progress dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ui-space-3); margin: var(--ui-space-3) 0 0; }
+.roost-progress dt { display: flex; align-items: center; gap: var(--ui-space-2); font-size: var(--ui-text-sm); color: var(--ui-muted); }
+.roost-progress dt > .ui-icon { width: 28px; height: 28px; }
+.roost-progress dd { margin: 0; min-width: 0; font-size: var(--ui-text-title); font-variant-numeric: tabular-nums; }
+.roost-xp, .roost-power { grid-column: 1 / -1; }
+.roost-xp dd { display: grid; gap: var(--ui-space-2); margin-top: var(--ui-space-2); }
+.roost-xp .ui-progress { height: 18px; }
+.roost-power { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-3); }
+.roost-power dt { min-width: 0; }
+.roost-stat { display: grid; gap: var(--ui-space-2); align-content: space-between; }
+.roost-stat dt { flex-direction: column; align-items: flex-start; }
+.roost-stat dt > .ui-icon { width: 36px; height: 36px; }
+.roost-stat dd { overflow-wrap: normal; }
+.roost-referral { display: grid; gap: var(--ui-space-3); }
+.roost-invite-actions { display: grid; gap: var(--ui-space-3); }
+.roost-footnote > .ui-icon { width: 24px; height: 24px; }
+
+@media (max-height: 600px) {
+  .roost-screen.ui-screen { gap: var(--ui-space-4); }
+  .roost-portrait { flex-basis: 56px; width: 56px; }
+}

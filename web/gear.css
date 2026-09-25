@@ -1,0 +1,46 @@
+/* Wave 2 Gear compositions. All surfaces, controls and state colors belong to foundation.css. */
+.gear-screen {
+  display: grid;
+  gap: var(--ui-space-6);
+  overflow-wrap: anywhere;
+}
+.gear-screen p { margin: 0; font-size: var(--ui-text-sm); line-height: var(--ui-leading-body); }
+.gear-screen .gear-section-note { margin-top: var(--ui-space-2); }
+.gear-fighter { display: flex; align-items: center; gap: var(--ui-space-3); }
+.gear-fighter > div:last-child { min-width: 0; }
+.gear-fighter-art { width: 88px; flex: 0 0 88px; }
+.gear-screen .rooster-svg { display: block; width: 100%; height: auto; filter: none; animation: none; }
+.gear-fighter .ui-title { margin: var(--ui-space-1) 0 var(--ui-space-2); }
+.gear-fighter-stats { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-2); }
+.gear-fighter-stats strong { display: inline-flex; align-items: center; gap: var(--ui-space-1); font-size: var(--ui-text-body); }
+.gear-upgrades, .gear-breed-list { display: grid; gap: var(--ui-space-4); margin-top: var(--ui-space-3); }
+.gear-item-heading { display: flex; gap: var(--ui-space-3); align-items: center; margin-bottom: var(--ui-space-3); }
+.gear-item-heading > div:last-child { min-width: 0; }
+.gear-item-heading .ui-title { margin-bottom: var(--ui-space-2); }
+.gear-item-art { display: grid; place-items: center; width: 64px; height: 64px; flex: 0 0 64px; padding: var(--ui-space-2); }
+.gear-item-art svg { width: 100%; height: 100%; }
+.gear-screen .gear-benefit { display: flex; align-items: center; gap: var(--ui-space-1); font-size: var(--ui-text-body); font-weight: 700; }
+.gear-screen .gear-next { margin-top: var(--ui-space-1); }
+.gear-action { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr); gap: var(--ui-space-2) var(--ui-space-3); margin-top: var(--ui-space-3); align-items: center; }
+.gear-price { display: flex; flex-direction: column; gap: var(--ui-space-1); min-width: 0; }
+.gear-price > span { font-size: var(--ui-text-sm); }
+.gear-price strong { font-variant-numeric: tabular-nums; }
+.gear-price:empty { display: none; }
+.gear-price:empty + .ui-button { grid-column: 1 / -1; }
+.gear-action .ui-button { width: 100%; min-height: 52px; }
+.gear-availability { grid-column: 1 / -1; color: var(--ui-muted); }
+.gear-availability:empty { display: none; }
+.gear-screen .gear-complete { display: flex; align-items: center; gap: var(--ui-space-2); margin-top: var(--ui-space-3); font-weight: 700; }
+.gear-breed-heading { display: flex; align-items: center; gap: var(--ui-space-3); }
+.gear-breed-heading > div:last-child { min-width: 0; }
+.gear-breed-art { width: 92px; flex: 0 0 92px; padding: var(--ui-space-1); }
+.gear-ownership { margin-bottom: var(--ui-space-2); max-width: 100%; }
+.gear-screen .gear-multiplier { margin-top: var(--ui-space-2); font-size: var(--ui-text-body); font-weight: 700; }
+.gear-screen .gear-description { margin-top: var(--ui-space-3); }
+.gear-screen .gear-feedback { margin-top: var(--ui-space-3); }
+@media (max-width: 370px) {
+  .gear-fighter-art { width: 72px; flex-basis: 72px; }
+  .gear-breed-art { width: 80px; flex-basis: 80px; }
+  .gear-action { grid-template-columns: minmax(0, 1fr); }
+  .gear-price { flex-direction: row; align-items: center; justify-content: space-between; }
+}

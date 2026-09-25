@@ -1,46 +1,50 @@
-/* Rankings only: use the existing theme and leave the shared shell untouched. */
-.rankings-screen { padding-bottom: 8px; }
-.rankings-screen h1 { margin: 0; font-size: 26px; line-height: 1.2; letter-spacing: -.4px; }
-.rankings-screen h2 { margin: 0; font-size: 18px; line-height: 1.3; }
-.rankings-screen p { font-size: 14px; line-height: 1.5; }
-.rankings-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-.rankings-screen button { min-height: 44px; border-radius: 12px; }
-.rankings-screen :is(button, [tabindex]):focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
-.rankings-refresh { display: grid; place-items: center; flex: 0 0 44px; width: 44px; padding: 10px; color: var(--text); background: var(--panel); }
-.rankings-refresh svg { width: 24px; height: 24px; }
-.rankings-refresh:disabled { opacity: 1; color: var(--muted); background: var(--panel-light); }
-.rankings-screen .ranking-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.rankings-screen .ranking-options button { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 8px 4px; font-size: 15px; font-weight: 600; color: var(--text); border: 1px solid transparent; background: var(--panel); }
-.rankings-screen .ranking-options [aria-pressed=true] { color: var(--text); background: var(--panel-light); border-color: var(--amber); box-shadow: inset 0 -3px var(--amber); }
-.rankings-screen .ranking-options svg { flex: 0 0 16px; width: 16px; height: 16px; visibility: hidden; fill: none; stroke: currentColor; stroke-width: 2; }
-.rankings-screen .ranking-options [aria-pressed=true] svg { visibility: visible; }
-.rankings-status { min-height: 21px; margin: 8px 0 16px; color: var(--muted); }
-.rankings-status.is-error { color: var(--red); }
-.rankings-status button { padding: 8px 12px; color: var(--text); background: var(--panel-light); font-size: 14px; font-weight: 600; }
-.rankings-own { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; padding: 8px 12px; background: var(--panel-light); color: var(--text); font-size: 14px; font-weight: 700; text-align: left; }
-.rankings-own>span { font-weight: 400; }
-.rankings-outside { margin: 0 0 12px; color: var(--muted); }
-.rankings-columns, .rankings-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
-.rankings-columns { padding: 0 8px 8px; color: var(--muted); font-size: 14px; line-height: 1.4; }
-.rankings-columns>span:last-child { text-align: right; }
-.rankings-screen .rankings-list { margin: 0; padding: 0; border: 0; border-radius: 0; list-style: none; overflow: visible; }
-.rankings-row { min-height: 56px; padding: 12px 8px; border-top: 1px solid var(--line); font-size: 16px; line-height: 1.4; scroll-margin-block: calc(var(--app-inset-top) + 16px) calc(var(--app-inset-bottom) + 100px); }
-.rankings-rank { color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
-.rankings-row.is-leading .rankings-rank { color: var(--text); font-weight: 800; text-decoration: underline; text-decoration-color: var(--amber); text-decoration-thickness: 2px; text-underline-offset: 5px; }
-.rankings-row.is-you { background: var(--panel-light); box-shadow: inset 3px 0 var(--amber); }
-.rankings-screen .leaderboard-name { min-width: 0; white-space: normal; overflow: visible; overflow-wrap: anywhere; font-size: 16px; font-weight: 600; text-align: left; }
-.rankings-screen .leaderboard-name small { margin-top: 4px; color: var(--muted); font-size: 14px; line-height: 1.4; font-weight: 400; }
-.rankings-value { max-width: 100%; font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
-.rankings-empty { padding: 16px 0 24px; }
-.rankings-empty p { margin: 8px 0 0; color: var(--muted); }
-.rankings-note { margin: 16px 0 0; color: var(--muted); }
-.rankings-skeleton>div { display: grid; grid-template-columns: 24px 1fr 56px; align-items: center; gap: 16px; min-height: 56px; padding: 12px 8px; border-top: 1px solid var(--line); }
-.rankings-skeleton i { display: block; height: 12px; background: var(--panel-light); border-radius: 4px; }
-.rankings-skeleton>div:nth-child(even) i:nth-child(2) { width: 70%; }
+/* Rankings composition. Shared ui-* components own all surfaces and controls. */
+.rankings-screen.ui-screen { gap: var(--ui-space-3); }
+.rankings-heading { gap: var(--ui-space-2); }
+.rankings-heading h1 { flex: 1; min-width: 0; margin: 0; }
+.rankings-refresh { flex: 0 0 var(--ui-touch); width: var(--ui-touch); padding: var(--ui-space-2); }
+.rankings-refresh > svg { width: var(--ui-space-6); height: var(--ui-space-6); }
+.rankings-screen .rankings-modes { gap: var(--ui-space-2); }
+.rankings-screen .rankings-modes .ui-button { min-height: 52px; padding-inline: var(--ui-space-1); gap: var(--ui-space-1); }
+.rankings-screen .rankings-modes .ui-icon { width: 21px; height: 21px; }
+.rankings-screen .rankings-modes .ui-selection .ui-icon { width: var(--ui-space-4); height: var(--ui-space-4); }
+.rankings-modes [aria-pressed=true] > .ui-icon { display: none; }
+.rankings-mode-label { min-width: 0; overflow-wrap: normal; }
+.rankings-status { min-height: 20px; margin: var(--ui-space-3) 0; font-size: var(--ui-text-sm); line-height: var(--ui-leading-body); }
+.rankings-status.is-error { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-2); }
+.rankings-status.is-error .ui-button { flex-shrink: 0; }
+.rankings-screen .rankings-own { display: flex; width: 100%; justify-content: space-between; gap: var(--ui-space-2); padding: var(--ui-space-3); text-align: left; }
+.rankings-own strong { font-size: var(--ui-text-lg); }
+.rankings-own > span { display: flex; align-items: center; gap: var(--ui-space-1); font-size: var(--ui-text-sm); }
+.rankings-outside { margin: 0 0 var(--ui-space-3); }
+.rankings-columns, .rankings-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; align-items: center; gap: var(--ui-space-2); }
+.rankings-columns { padding: 0 calc(var(--ui-space-3) + 3px) var(--ui-space-2); color: var(--ui-muted); font-size: var(--ui-text-sm); line-height: var(--ui-leading-body); }
+.rankings-columns > span:last-child { text-align: right; }
+.rankings-screen .rankings-list { display: grid; gap: var(--ui-space-2); margin: 0; padding: 0; border: 0; border-radius: 0; list-style: none; overflow: visible; }
+.rankings-row { min-height: 68px; scroll-margin-block: calc(var(--app-inset-top) + var(--ui-space-4)) calc(var(--app-inset-bottom) + var(--ui-nav-reserve)); }
+.rankings-rank { font-size: var(--ui-text-title); font-variant-numeric: tabular-nums; text-align: center; }
+.rankings-row.is-leading .rankings-rank { color: var(--ui-gold); }
+.rankings-row.is-you { border-color: var(--ui-gold); }
+.rankings-row:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 3px; }
+.rankings-screen .leaderboard-name { min-width: 0; white-space: normal; overflow: visible; overflow-wrap: anywhere; font-size: var(--ui-text-lg); line-height: var(--ui-leading-body); font-weight: 700; text-align: left; }
+.rankings-screen .leaderboard-name small { display: table; margin-top: var(--ui-space-1); font-size: var(--ui-text-xs); }
+.rankings-screen .leaderboard-name small .ui-icon { margin-right: var(--ui-space-1); }
+.rankings-value { max-width: 100%; font-size: var(--ui-text-action); font-variant-numeric: tabular-nums; text-align: right; }
+.rankings-empty { display: grid; justify-items: start; gap: var(--ui-space-2); padding: var(--ui-space-4); }
+.rankings-empty > .ui-icon { width: 40px; height: 40px; }
+.rankings-empty p { margin: 0; }
+.rankings-note { margin: var(--ui-space-4) 0 0; }
+.rankings-skeleton { display: grid; gap: var(--ui-space-2); }
+.rankings-skeleton > div { display: grid; grid-template-columns: 30px 1fr 56px; align-items: center; gap: var(--ui-space-4); min-height: 68px; }
+.rankings-skeleton i { display: block; height: var(--ui-space-3); background: var(--ui-control-disabled); border-radius: var(--ui-radius-sm); }
+.rankings-skeleton > div:nth-child(even) i:nth-child(2) { width: 70%; }
 .rankings-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-/* Very large scores get a second line instead of squeezing the player's name. */
-.rankings-row.has-long-value { row-gap: 4px; }
+/* Large server values get a separate line without compressing fighter names. */
+.rankings-row.has-long-value { row-gap: var(--ui-space-1); }
 .rankings-row.has-long-value .rankings-rank { grid-row: span 2; }
 .rankings-row.has-long-value .leaderboard-name { grid-column: 2 / -1; }
-.rankings-row.has-long-value .rankings-value { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 4px 8px; text-align: left; }
-.rankings-row.has-long-value .rankings-sr-only { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip-path: none; white-space: normal; font-size: 14px; font-weight: 400; color: var(--muted); }
+.rankings-row.has-long-value .rankings-value { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: var(--ui-space-1) var(--ui-space-2); text-align: left; }
+.rankings-row.has-long-value .rankings-sr-only { position: static; width: auto; height: auto; margin: 0; overflow: visible; clip-path: none; white-space: normal; font: 400 var(--ui-text-sm)/var(--ui-leading-body) var(--ui-font-body); color: var(--ui-muted); -webkit-text-stroke: 0; text-shadow: none; }
+@media (max-width: 335px) {
+  .rankings-screen .rankings-own { align-items: flex-start; flex-direction: column; }
+}

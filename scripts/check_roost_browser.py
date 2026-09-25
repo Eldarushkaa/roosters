@@ -39,6 +39,7 @@ def context_for(browser, url, clock, player, width=390, height=844, scheme='dark
     context.route('https://telegram.org/js/telegram-web-app.js', lambda route: route.fulfill(status=200, content_type='application/javascript', body=bridge))
     context.add_init_script("localStorage.setItem('rooster.v1.language', %s)" % json.dumps(language))
     context.add_init_script('const snapshotTime = Date.now(); Date.now = () => snapshotTime;')
+    context.add_init_script("localStorage.setItem('rooster.v1.guideSeen.v1', '1')")
     page = context.new_page()
     page.goto(url + '/#roost', wait_until='networkidle')
     page.evaluate('shellTheme(%s)' % json.dumps(scheme))
@@ -63,13 +64,16 @@ def layout(page, label):
     check_layout(page, label)
     assert page.locator('.roost-screen p, .roost-screen dt').evaluate_all('nodes => nodes.every(n => parseFloat(getComputedStyle(n).fontSize) >= 14)')
     assert page.locator('.roost-screen button').evaluate_all('nodes => nodes.every(n => n.getBoundingClientRect().height >= 44)')
-    assert page.locator('.roost-screen .btn.primary').count() <= 1
-    for button in page.locator('.roost-screen button').all():
-        button.evaluate("n => n.scrollIntoView({block:'center', behavior:'instant'})")
-        page.wait_for_function('''n => {
-            const r = n.getBoundingClientRect();
-            return [0.15, 0.5, 0.85].every(y => n.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height * y)));
-        }''', arg=button.element_handle(), timeout=3000)
+    assert page.locator('.roost-screen .ui-button.ui-primary').count() <= 1
+    assert page.locator('.roost-screen .btn').count() == 0
+    # State refreshes can replace a button between scrolling and retaining its
+    # handle. Measure scroll clearance atomically against the current DOM.
+    obscured = page.evaluate('''() => [...document.querySelectorAll('.roost-screen button')].filter(n => {
+        n.scrollIntoView({block:'center', behavior:'instant'});
+        const r = n.getBoundingClientRect();
+        return ![0.15, 0.5, 0.85].every(y => n.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height * y)));
+    }).map(n => n.outerHTML)''')
+    assert not obscured, (label, obscured)
 
 
 def exercise(browser, url, app, clock, artifacts):
@@ -92,7 +96,7 @@ def exercise(browser, url, app, clock, artifacts):
                 assert result['result']['payout_minor'] == 17000
                 expect(page.locator('[data-reward=daily]')).to_have_attribute('data-state', 'claimed')
                 expect(page.locator('[data-action=claim-daily]')).to_be_disabled()
-                assert page.locator('[data-action=claim-daily].primary').count() == 0
+                assert page.locator('[data-action=claim-daily].ui-primary').count() == 0
                 expect(page.locator('[data-reward=daily] .roost-feedback')).to_be_visible()
                 # No inferred countdown/date: the formatted timestamp comes from the server.
                 date = page.evaluate("ts => new Intl.DateTimeFormat(document.documentElement.lang, {hour:'2-digit',minute:'2-digit',day:'numeric',month:'short'}).format(new Date(ts*1000))", result['state']['economy']['next_daily_at'])
@@ -122,7 +126,11 @@ def exercise(browser, url, app, clock, artifacts):
         page.locator(f'[data-action=claim-{kind}]').click()
         reward = page.locator(f'[data-reward={kind}]')
         expect(reward).to_have_attribute('data-state', 'claiming')
+        expect(reward.locator('.ui-button')).to_have_attribute('aria-busy', 'true')
+        expect(reward.locator('.ui-button')).to_be_disabled()
         expect(page.locator('.roost-progress')).to_be_visible()
+        expect(page.locator('.roost-progress [role=progressbar]')).to_have_attribute('aria-valuenow', str(before['player']['xp_in_level']))
+        expect(page.locator('.roost-progress [role=progressbar]')).to_have_attribute('aria-valuemax', str(before['player']['xp_to_next']))
         page.screenshot(path=str(artifacts / f'{kind}-claiming.png'), full_page=True)
         route = held.pop()
         original = (route.request.post_data_json, route.request.headers['idempotency-key'])
@@ -163,9 +171,12 @@ def exercise(browser, url, app, clock, artifacts):
     # Huge server-provided amounts must wrap without reducing essential font sizes.
     def huge_state(route):
         payload = route.fetch().json()
-        payload['economy'].update(daily_reward_minor=987654321012345, passive_available_minor=987654321012345, daily_available=True)
+        snapshot = payload.get('state', payload)
+        snapshot['economy'].update(daily_reward_minor=987654321012345, passive_available_minor=987654321012345, daily_available=True)
         route.fulfill(json=payload)
     page.route('**/api/v1/state', huge_state)
+    # Resume also schedules a presence mutation; retain the same fixture in its state.
+    page.route('**/api/v1/presence', huge_state)
     page.set_viewport_size({'width': 320, 'height': 568})
     page.evaluate('Telegram.WebApp.viewportStableHeight=innerHeight; shellEmit("viewportChanged", {isStateStable:true})')
     refresh(page)
@@ -173,8 +184,12 @@ def exercise(browser, url, app, clock, artifacts):
     # Check the actual fixture amount before retaining handles for layout checks.
     expect(page.locator('[data-reward=daily] .roost-amount')).to_contain_text('9,876,543,210,123.45')
     layout(page, 'large-values')
+    expect(page.locator('[data-reward=daily] .roost-amount')).to_contain_text('9,876,543,210,123.45')
     page.screenshot(path=str(artifacts / 'large-values.png'), full_page=True)
-    page.unroute('**/api/v1/state')
+    page.wait_for_load_state('networkidle')
+    # Drain asynchronous fetch/fulfill work before restoring live responses.
+    # These are the only page routes; the Telegram bridge is context-owned.
+    page.unroute_all(behavior='wait')
     refresh(page)
 
     # Exact invitation contract: Telegram share URL and clipboard use the same referral.

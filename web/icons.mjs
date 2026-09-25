@@ -1,9 +1,16 @@
-/** Small same-origin SVG sprite. Never substitutes symbols inside player data. */
-export const iconNames = Object.freeze(['arena', 'gear', 'roost', 'trophy', 'power', 'coin', 'check', 'close', 'arrow-up-right', 'arrow-right', 'arrow-down', 'feather', 'rooster', 'refresh', 'alert', 'search']);
+/** Shared 24px game sprite. Never substitutes symbols inside player data.
+ * `arena` and `arrow` remain aliases for existing app and preview callers.
+ */
+export const iconNames = Object.freeze(['arena', 'swords', 'gear', 'roost', 'trophy', 'bot', 'power', 'coin', 'check', 'close', 'arrow-up-right', 'arrow', 'arrow-right', 'arrow-down', 'feather', 'rooster', 'refresh', 'alert', 'search', 'info', 'document']);
+const spriteHref = new URL('./icons.svg', import.meta.url).href;
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[char]));
-export function icon(name, label = '') {
+/** Omit label beside live text; provide a localized label for meaningful standalone marks.
+ * The preview opts into its existing sizing hooks with {classPrefix: 'ap-icon'}.
+ */
+export function icon(name, label = '', {classPrefix = 'ui-icon'} = {}) {
   if (!iconNames.includes(name)) return '';
-  return `<svg class="ui-icon" data-icon="${name}" viewBox="0 0 24 24" focusable="false" ${label ? `role="img" aria-label="${escape(label)}"` : 'aria-hidden="true"'}><use href="/static/icons.svg#${name}"/></svg>`;
+  const prefix = /^[a-z][a-z0-9-]*$/i.test(classPrefix) ? classPrefix : 'ui-icon';
+  return `<svg class="${prefix} ${prefix}-${name}" data-icon="${name}" viewBox="0 0 24 24" focusable="false" ${label ? `role="img" aria-label="${escape(label)}"` : 'aria-hidden="true"'}><use href="${escape(spriteHref)}#${name}"/></svg>`;
 }
 const glyphs = Object.freeze({'✦':'coin', 'ϟ':'power', '✓':'check', '⚔':'arena', '↗':'arrow-up-right', '→':'arrow-right', '⌕':'search'});
 /** Translate the trusted template first; interpolate parameters only as text. */

@@ -1,41 +1,50 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" class="ui-game-screen">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#121a22">
+    <meta name="theme-color" content="#075cdb">
     <meta name="description" data-i18n-content="shell.description" content="Бойцовский двор — маленький петух, большие амбиции. Развивай бойца и сражайся с друзьями в Telegram.">
     <title>Бойцовский двор · Rooster Club</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="/static/gear.css">
+    <link rel="stylesheet" href="/static/roost.css">
     <link rel="stylesheet" href="/static/rankings.css">
+    <link rel="stylesheet" href="/static/foundation.css">
+    <link rel="stylesheet" href="/static/shell.css">
+    <link rel="stylesheet" href="/static/arena.css">
+    <link rel="stylesheet" href="/static/battle.css">
+    <link rel="stylesheet" href="/static/battle-result.css">
+    <link rel="stylesheet" href="/static/guide.css">
     <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
     <script src="/static/app.js" type="module"></script>
   </head>
-  <body>
-    <div class="app-shell">
+  <body class="ui-body">
+    <div class="app-shell ui-shell">
       <header class="app-header">
         <a class="brand" href="#arena" data-i18n-aria="shell.home" aria-label="Бойцовский двор, главная"><span class="brand-symbol" aria-hidden="true"><svg class="ui-icon" data-icon="rooster" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#rooster"/></svg></span><span>ROOSTER<span class="brand-sub" data-i18n="shell.brandSubtitle">БОЙЦОВСКИЙ ДВОР</span></span></a>
-        <div class="header-controls"><div class="language-switch" role="group" data-i18n-aria="shell.language" aria-label="Язык интерфейса"><button type="button" data-language="ru" aria-pressed="true" lang="ru">RU</button><button type="button" data-language="en" aria-pressed="false" lang="en">EN</button></div><span class="connection-pill" id="connection" role="status"><span class="status-dot" aria-hidden="true"></span><span id="connection-label">Подключаемся</span></span></div>
+        <div class="header-controls"><button id="open-guide" type="button" class="ui-button header-guide" data-action="open-guide" data-focus="open-guide" data-i18n-aria="guide.open" data-i18n-title="guide.open" aria-label="Как играть" title="Как играть" aria-haspopup="dialog" aria-controls="quick-guide" hidden><svg class="ui-icon" data-icon="document" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#document"/></svg></button><div class="language-switch ui-segmented-compact" role="group" data-i18n-aria="shell.language" aria-label="Язык интерфейса"><button type="button" class="ui-button" data-language="ru" aria-pressed="true" lang="ru">RU</button><button type="button" class="ui-button" data-language="en" aria-pressed="false" lang="en">EN</button></div><span class="connection-pill ui-badge" id="connection" role="status"><span class="status-dot" aria-hidden="true"></span><span id="connection-label">Подключаемся</span></span></div>
       </header>
       <div class="dev-banner" id="dev-banner" hidden><b data-i18n="shell.devTitle">Локальный двор</b> <span data-i18n="shell.devSubtitle">Тестовый игрок · без Telegram</span></div>
       <div class="player-bar" id="player-bar" hidden>
-        <div class="player-identity"><span class="avatar" id="avatar" aria-hidden="true">И</span><div><span class="eyebrow" data-i18n="shell.yourFighter">ТВОЙ БОЕЦ</span><strong id="player-name">Игрок</strong></div></div>
-        <div class="wallet"><div class="wallet-item" data-i18n-title="shell.walletTitle" title="Игровые монеты — бои, снаряжение и породы"><span class="currency-icon grain" aria-hidden="true"><svg class="ui-icon" data-icon="coin" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#coin"/></svg></span><div><strong id="balance">—</strong><span data-i18n="shell.coins">монеты</span></div></div></div>
+        <div class="player-identity"><span class="avatar ui-badge" id="avatar" aria-hidden="true">И</span><div><span class="eyebrow" data-i18n="shell.yourFighter">ТВОЙ БОЕЦ</span><strong id="player-name">Игрок</strong></div></div>
+        <div class="wallet ui-panel ui-panel-inset"><div class="wallet-item" data-i18n-title="shell.walletTitle" title="Игровые монеты — бои, снаряжение и породы"><span class="currency-icon grain" aria-hidden="true"><svg class="ui-icon" data-icon="coin" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#coin"/></svg></span><div><strong id="balance">—</strong><span data-i18n="shell.coins">монеты</span></div></div></div>
       </div>
       <main id="main" tabindex="-1">
-        <div class="loading-view"><span class="loading-rooster" aria-hidden="true"><svg class="ui-icon" data-icon="rooster" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#rooster"/></svg></span><h1 data-i18n="loading.title">Разбудим весь двор.</h1><p data-i18n="loading.body">Готовим арену для твоего бойца…</p><div class="loading-bar"></div></div>
+        <div class="loading-view ui-panel" role="status"><span class="loading-rooster" aria-hidden="true"><svg class="ui-icon" data-icon="rooster" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#rooster"/></svg></span><h1 class="ui-headline" data-i18n="loading.title">Разбудим весь двор.</h1><p class="ui-muted" data-i18n="loading.body">Готовим арену для твоего бойца…</p><div class="loading-bar ui-progress" aria-hidden="true"><span></span></div></div>
       </main>
       <footer class="app-footer" data-i18n="shell.footer">Играем ради славы. Валюта игровая, вывода денег нет.</footer>
     </div>
-    <nav class="bottom-nav" data-i18n-aria="shell.navigation" aria-label="Разделы игры" id="navigation" hidden>
-      <button type="button" data-tab="arena" class="nav-item active" aria-current="page"><span aria-hidden="true"><svg class="ui-icon" data-icon="arena" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#arena"/></svg></span><span data-i18n="nav.arena">Арена</span></button>
-      <button type="button" data-tab="gear" class="nav-item"><span aria-hidden="true"><svg class="ui-icon" data-icon="gear" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#gear"/></svg></span><span data-i18n="nav.gear">Снаряжение</span></button>
-      <button type="button" data-tab="roost" class="nav-item"><span aria-hidden="true"><svg class="ui-icon" data-icon="roost" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#roost"/></svg></span><span data-i18n="nav.roost">Курятник</span></button>
-      <button type="button" data-tab="leaderboard" class="nav-item"><span aria-hidden="true"><svg class="ui-icon" data-icon="trophy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#trophy"/></svg></span><span data-i18n="nav.leaderboard">Рейтинг</span></button>
+    <nav class="bottom-nav ui-nav" data-i18n-aria="shell.navigation" aria-label="Разделы игры" id="navigation" hidden>
+      <button type="button" data-tab="arena" class="nav-item ui-button ui-nav-item active" aria-current="page"><span aria-hidden="true"><svg class="ui-icon" data-icon="arena" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#arena"/></svg></span><span data-i18n="nav.arena">Арена</span></button>
+      <button type="button" data-tab="gear" class="nav-item ui-button ui-nav-item"><span aria-hidden="true"><svg class="ui-icon" data-icon="gear" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#gear"/></svg></span><span data-i18n="nav.gear">Снаряжение</span></button>
+      <button type="button" data-tab="roost" class="nav-item ui-button ui-nav-item"><span aria-hidden="true"><svg class="ui-icon" data-icon="roost" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#roost"/></svg></span><span data-i18n="nav.roost">Курятник</span></button>
+      <button type="button" data-tab="leaderboard" class="nav-item ui-button ui-nav-item"><span aria-hidden="true"><svg class="ui-icon" data-icon="trophy" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="/static/icons.svg#trophy"/></svg></span><span data-i18n="nav.leaderboard">Рейтинг</span></button>
     </nav>
     <section id="battle-result-toast" class="result-toast" role="status" aria-live="polite" hidden></section>
     <div class="notice-stack" id="notice-stack" aria-live="polite" aria-atomic="true"></div>
+    <div id="guide-overlay" class="guide-overlay" hidden><section id="quick-guide" class="quick-guide ui-panel ui-panel-raised" role="dialog" aria-modal="true" aria-labelledby="guide-title" tabindex="-1"></section></div>
     <noscript><div class="noscript">Для игры нужен JavaScript. Включи его и перезагрузи страницу. / This game needs JavaScript. Enable it and reload the page.</div></noscript>
   </body>
 </html>

@@ -3,6 +3,7 @@
 Run: python -m scripts.check_gear_browser. No real player data or Telegram login.
 """
 import json
+import re
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Thread
@@ -55,6 +56,7 @@ def exercise(browser, url, app, artifacts):
                 context.add_init_script("localStorage.setItem('rooster.v1.language', %s)" % json.dumps(language))
                 # Keep scheduled presence out of deterministic purchase assertions.
                 context.add_init_script('const snapshotTime = Date.now(); Date.now = () => snapshotTime;')
+                context.add_init_script("localStorage.setItem('rooster.v1.guideSeen.v1', '1')")
                 page = context.new_page()
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 page.goto(url + '/#gear', wait_until='networkidle')
@@ -81,6 +83,7 @@ def exercise(browser, url, app, artifacts):
     context = browser.new_context(viewport={'width': 390, 'height': 844}, reduced_motion='reduce')
     context.route('https://telegram.org/js/telegram-web-app.js', lambda route: route.fulfill(status=200, body=''))
     context.add_init_script('const snapshotTime = Date.now(); Date.now = () => snapshotTime;')
+    context.add_init_script("localStorage.setItem('rooster.v1.guideSeen.v1', '1')")
     page = context.new_page()
     page.goto(url + '/#gear', wait_until='networkidle')
     seed(app, page, balance_minor=100000)
@@ -120,7 +123,7 @@ def exercise(browser, url, app, artifacts):
         response = received.value
         assert response.request.post_data_json == {'breed_id': breed}
         assert response.json()['state']['player']['balance_minor'] == before['player']['balance_minor'] - cost
-        expect(page.locator(f'[data-breed-id={breed}]')).to_have_class('gear-breed is-equipped')
+        expect(page.locator(f'[data-breed-id={breed}]')).to_have_class(re.compile(r'\bis-equipped\b'))
         assert page.locator(f'[data-breed-id={breed}] button').count() == 0
     # A definitive API error stays local, retains useful screen data and permits recovery.
     page.route('**/api/v1/gear/upgrade', lambda route: route.fulfill(status=409, json={'error': {'code': 'insufficient_funds', 'message': 'server detail'}}))

@@ -13,11 +13,17 @@ from math import isqrt
 from typing import Dict, Mapping, Optional
 
 
-RULES_VERSION = "v4"
+RULES_VERSION = "v6"
 COIN_SCALE = 100
 BATTLE_DURATION = 10
 ROULETTE_DURATION = 2
 STAKES_MINOR = (1000, 2500, 5000, 10000)
+MIN_STAKE_MINOR = 1000
+STAKE_STEP_MINOR = 1
+# Presets above are shortcuts, not the accepted stake domain. Even the largest
+# bot prize (2.16 times the stake) must remain an exact JSON/JavaScript integer.
+MAX_SAFE_INTEGER = 2**53 - 1
+MAX_STAKE_MINOR = MAX_SAFE_INTEGER * 25 // 54
 WELCOME_MINOR = 42000
 DAILY_MINOR = 17000
 FREE_REWARD_MINOR = 1500
@@ -29,8 +35,8 @@ TAP_CAP = 90
 TAP_BONUS_CAP = 0.2
 BOT_TAPS = 0
 BOT_RTP_MIN = Fraction(9, 10)
-BOT_RTP_MAX = Fraction(21, 20)
-PVP_POOL_RETURN = Fraction(19, 20)
+BOT_RTP_MAX = Fraction(11, 10)
+PVP_WIN_MULTIPLIER = Fraction(19, 10)
 
 BREEDS = [
     {
@@ -104,7 +110,7 @@ def catalog() -> dict:
             "bot_power_max_ratio": 1.4,
             "bot_rtp_min": float(BOT_RTP_MIN),
             "bot_rtp_max": float(BOT_RTP_MAX),
-            "pvp_pool_return": float(PVP_POOL_RETURN),
+            "pvp_win_multiplier": float(PVP_WIN_MULTIPLIER),
             "free_reward_minor": FREE_REWARD_MINOR,
         },
     }
@@ -159,11 +165,11 @@ def bot_power_bounds(player_power: int) -> tuple:
 
 
 def bot_probability(player_power: int, bot_power: int, taps: int) -> Fraction:
-    """Exact bot win chance, increasing by one sixth after ninety taps.
+    """Exact bot win chance, increasing by two ninths after ninety taps.
 
-    The zero-tap probability is P / (P + B). Each accepted tap adds 1/540 of
+    The zero-tap probability is P / (P + B). Each accepted tap adds 1/405 of
     that baseline, capped at ninety taps. With a fixed pre-fight prize this
-    raises theoretical gross RTP from 90% to 105%. This is a probability bonus,
+    raises theoretical gross RTP from 90% to 110%. This is a probability bonus,
     separate from the effective-power bonus used in PvP. Bot powers outside
     the roulette bounds are rejected rather than silently changing that curve.
     """
@@ -173,16 +179,16 @@ def bot_probability(player_power: int, bot_power: int, taps: int) -> Fraction:
     if not lower <= bot_power <= upper:
         raise ValueError("Bot power is outside the roulette bounds")
     base = Fraction(player_power, player_power + bot_power)
-    chance = base * Fraction(6 * TAP_CAP + min(taps, TAP_CAP), 6 * TAP_CAP)
+    chance = base * Fraction(9 * TAP_CAP + 2 * min(taps, TAP_CAP), 9 * TAP_CAP)
     if not 0 < chance < 1:
         raise ValueError("Bot probability must stay strictly between zero and one")
     return chance
 
 
 def _stake(stake_minor: int) -> int:
-    _integer(stake_minor, "stake_minor", 1)
-    if stake_minor not in STAKES_MINOR:
-        raise ValueError("Unknown stake")
+    _integer(stake_minor, "stake_minor", MIN_STAKE_MINOR)
+    if stake_minor > MAX_STAKE_MINOR:
+        raise ValueError("Stake exceeds the exact monetary range")
     return stake_minor
 
 
@@ -191,7 +197,7 @@ def bot_payout(stake_minor: int, player_power: int, bot_power: int) -> int:
 
     Quote once before the roulette, from frozen powers and zero-tap chance.
     Tap count never changes this quote. Flooring only once to a whole minor
-    unit makes actual RTP slightly lower than 90%..105%; the difference is
+    unit makes actual RTP slightly lower than 90%..110%; the difference is
     less than one minor unit times the win chance, divided by the stake.
     A loss pays zero. The application charges entry and persists this quote.
     """
@@ -201,13 +207,13 @@ def bot_payout(stake_minor: int, player_power: int, bot_power: int) -> int:
 
 
 def online_payout(stake_minor: int) -> int:
-    """Winner takes 95% of two equal stakes; the loser receives zero.
+    """Winner receives 1.9 times their own stake; the loser receives zero.
 
-    This guarantees 95% aggregate pool return, not 95% return for each player:
-    individual expectation also depends on their probability of winning.
-    All supported stakes give an exact integer prize in coin hundredths.
+    The opponent's stake never enters this quote. Before minor-unit rounding,
+    expected return is 1.9 times win probability, with no pooled-bank guarantee.
+    Floor once to a whole coin hundredth, including for custom stakes.
     """
-    quote = 2 * _stake(stake_minor) * PVP_POOL_RETURN
+    quote = _stake(stake_minor) * PVP_WIN_MULTIPLIER
     return quote.numerator // quote.denominator
 
 

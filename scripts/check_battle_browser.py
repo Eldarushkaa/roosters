@@ -33,28 +33,70 @@ window.battleTheme = scheme => {
 def assert_controls(page, label, essential=True, bottom_inset=0, top_inset=0):
     check_layout(page, label)
     expect(page.locator('#navigation')).to_be_hidden()
+    expect(page.locator('.battle-help, .last-battle-card')).to_have_count(0)
+    expect(page.locator('.battle-card.ui-panel')).to_have_count(1)
+    expect(page.locator('.battle-tap.ui-button.ui-primary')).to_have_count(1)
+    expect(page.locator('.battle-duration-track.ui-progress #battle-time-progress')).to_have_count(1)
     # Read one DOM snapshot: API updates replace markup, so separate locator
     # measurements can otherwise race with a detached node.
     geometry = page.evaluate("""() => {
         const button = document.querySelector('.battle-tap');
         const r = button.getBoundingClientRect();
-        const overview = document.querySelector('.battle-overview').getBoundingClientRect();
+        const overviewNode = document.querySelector('.battle-overview');
+        const overview = overviewNode.getBoundingClientRect();
+        const shell = document.querySelector('.app-shell');
+        const style = getComputedStyle(shell);
+        const usableHeight = shell.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom) + 16;
         const essentials = ['.battle-heading', '.fighters', '#battle-odds', '#battle-prize']
           .map(selector => ({selector, node: document.querySelector(selector)}))
           .filter(({node}) => node.getClientRects().length)
           .map(({selector, node}) => ({selector, rect: node.getBoundingClientRect().toJSON()}));
-        return {button: r.toJSON(), overview: overview.toJSON(), essentials,
+        const caption = document.querySelector('#battle-caption');
+        const captionBox = caption.getBoundingClientRect();
+        const buttonStyle = getComputedStyle(button);
+        const title = document.querySelector('.battle-heading h1');
+        const titleBox = title.getBoundingClientRect();
+        const titleRange = document.createRange();
+        titleRange.selectNodeContents(title);
+        const titleTextBox = titleRange.getBoundingClientRect();
+        const timerBox = document.querySelector('.battle-timer').getBoundingClientRect();
+        const languageBox = document.querySelector('.language-switch').getBoundingClientRect();
+        const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+        return {button: r.toJSON(), overview: overview.toJSON(), essentials, usableHeight,
+          scrollHeight: overviewNode.scrollHeight, scrollTop: overviewNode.scrollTop,
+          sharedStyle: shell.classList.contains('ui-shell')
+            && style.backgroundColor === 'rgb(7, 92, 219)'
+            && getComputedStyle(document.querySelector('.battle-heading h1')).fontFamily.includes('Arena Nunito')
+            && parseFloat(buttonStyle.borderTopWidth) >= 2
+            && buttonStyle.backgroundImage !== 'none' && buttonStyle.opacity === '1',
+          readableText: [...document.querySelectorAll('.battle-caption, .battle-tap > span, .fighter-meta, .battle-prize, .tap-score')]
+            .every(node => parseFloat(getComputedStyle(node).fontSize) >= 14),
+          captionReachable: caption.textContent.trim().length > 0 && captionBox.top >= r.bottom
+            && captionBox.bottom <= shell.getBoundingClientRect().bottom - parseFloat(style.paddingBottom) + 1,
+          headingClear: !overlaps(titleBox, timerBox) && !overlaps(titleBox, languageBox)
+            && !overlaps(titleTextBox, timerBox) && !overlaps(titleTextBox, languageBox)
+            && titleTextBox.width <= titleBox.width + 1
+            && titleRange.getClientRects().length === 1
+            && !overlaps(timerBox, languageBox) && timerBox.top >= parseFloat(style.paddingTop)
+            && timerBox.bottom <= shell.getBoundingClientRect().bottom - parseFloat(style.paddingBottom),
           uncovered: [0.1, 0.5, 0.9].every(y => button.contains(document.elementFromPoint(
             r.x + r.width / 2, r.y + r.height * y)))};
     }""")
     box = geometry['button']
     assert box['height'] >= 44 and box['y'] >= top_inset, (label, box)
+    assert abs(box['height'] - geometry['usableHeight'] / 2) <= 1, (label, geometry)
     assert box['bottom'] <= page.viewport_size['height'] - bottom_inset, (label, box)
     assert geometry['uncovered'], label + ': tap target covered'
+    assert geometry['sharedStyle'], label + ': shared battle presentation missing'
+    assert geometry['readableText'], label + ': important text smaller than 14px'
+    assert geometry['captionReachable'], label + ': state caption clipped or missing'
+    assert geometry['headingClear'], label + ': title, timer or language selector overlap'
     if essential:
         for item in geometry['essentials']:
             r = item['rect']
-            assert r['top'] >= top_inset and r['bottom'] <= geometry['overview']['bottom'] + 1, (label, item, geometry)
+            # Details may scroll above the large tap target on short screens.
+            content_bottom = r['bottom'] - geometry['overview']['top'] + geometry['scrollTop']
+            assert content_bottom <= geometry['scrollHeight'] + 1, (label, item, geometry)
 
 
 def exercise(browser, url, clock, artifacts):
@@ -66,9 +108,10 @@ def exercise(browser, url, clock, artifacts):
             status=200, content_type='application/javascript', body=BRIDGE))
         # Hold display time for repeatable screenshots; real API responses still
         # set the server offset. The main browser suite checks live deadlines.
-        context.add_init_script('const snapshotTime = Date.now(); Date.now = () => snapshotTime;')
+        context.add_init_script('let snapshotTime = Date.now(); Date.now = () => snapshotTime; window.battleAdvanceTime = milliseconds => { snapshotTime += milliseconds; };')
         context.add_init_script("localStorage.setItem('rooster.v1.identity', JSON.stringify(%s))" % json.dumps(
             {'user_id': 'layout_%s' % width + '_%s' % height, 'name': 'Боец с очень длинным именем'}))
+        context.add_init_script("localStorage.setItem('rooster.v1.guideSeen.v1', '1')")
         page = context.new_page()
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.goto(url, wait_until='networkidle')
@@ -86,20 +129,32 @@ def exercise(browser, url, clock, artifacts):
             refresh(page)
             assert_controls(page, f'{width}x{height} {language}')
             page.screenshot(path=str(artifacts / f'battle-{width}x{height}-{language}.png'))
-        # The grid's bottom row stays in place while the help and history scroll.
+        # The half-screen tap target stays in place while fight details scroll.
         original_y = page.evaluate("document.querySelector('.battle-tap').getBoundingClientRect().y")
-        page.locator('.battle-help summary').click()
-        page.locator('.battle-overview').evaluate('node => node.scrollTop = node.scrollHeight')
-        scroll_top = page.locator('.battle-overview').evaluate('node => node.scrollTop')
+        # Resolve, scroll and measure in one JS task: a poll can replace the
+        # overview between locator resolution and a later element evaluation.
+        scroll_metrics = '''scrollToBottom => {
+            const node = document.querySelector('.battle-overview');
+            if (scrollToBottom) node.scrollTop = node.scrollHeight;
+            return {
+                scrollTop: node.scrollTop, scrollHeight: node.scrollHeight, clientHeight: node.clientHeight,
+                rect: node.getBoundingClientRect().toJSON(), connected: node.isConnected,
+                viewport: {width: innerWidth, height: innerHeight},
+                language: document.documentElement.lang,
+                names: [...node.querySelectorAll('.fighter-name')].map(n => n.textContent)
+            };
+        }'''
+        scroll_before = page.evaluate(scroll_metrics, True)
         refresh(page)
-        expect(page.locator('.battle-help')).to_have_attribute('open', '')
-        assert page.locator('.battle-overview').evaluate('node => node.scrollTop') == scroll_top
-        assert_controls(page, 'scrolled help', essential=False)
+        scroll_after = page.evaluate(scroll_metrics, False)
+        assert scroll_after['scrollTop'] == scroll_before['scrollTop'], {
+            'viewport': f'{width}x{height}', 'before': scroll_before, 'after': scroll_after,
+        }
+        assert_controls(page, 'scrolled details', essential=False)
         # Read position in one JS task: polling can detach a locator between
         # Playwright's element resolution and its separate bounding-box request.
         current_y = page.evaluate("document.querySelector('.battle-tap').getBoundingClientRect().y")
         assert abs(current_y - original_y) < 1
-        page.locator('.battle-help').evaluate('node => node.open = false')
         page.locator('.battle-overview').evaluate('node => node.scrollTop = 0')
         # A theme event must not rebuild fighters or change server values.
         page.evaluate("window.savedFighter = document.querySelector('[data-fighter=you]'); battleTheme('light')")
@@ -144,19 +199,59 @@ def exercise(browser, url, clock, artifacts):
         page.screenshot(path=str(artifacts / f'battle-{width}x{height}-retry.png'))
         command(page, '[data-action=retry]', 'battle/tap')
         assert server_state(page)['battle']['you']['taps'] == 1
+        # Keyboard support uses the same command and must not add a second
+        # native click when Space is released on the focused tap button.
+        page.locator('.battle-tap').focus()
+        with page.expect_response(lambda response: response.url.endswith('/api/v1/battle/tap')) as keyed:
+            page.keyboard.press('Space')
+        assert keyed.value.json()['state']['battle']['you']['taps'] == 2
         with page.expect_response(lambda response: response.url.endswith('/api/v1/battle/tap')) as tapped:
-            page.evaluate("() => { for(let i = 0; i < 89; i++) document.querySelector('.battle-tap').click(); }")
+            page.evaluate("() => { for(let i = 0; i < 88; i++) document.querySelector('.battle-tap').click(); }")
         assert tapped.value.json()['state']['battle']['you']['taps'] == 90
         expect(page.locator('.battle-tap')).to_be_disabled()
         assert_controls(page, 'maxed')
         page.screenshot(path=str(artifacts / f'battle-{width}x{height}-maxed.png'))
         assert server_state(page)['player']['balance_minor'] == initial['player']['balance_minor']
+        # Let the display clock reach the deadline before the next real server
+        # settlement. The waiting state keeps navigation hidden and taps locked.
+        clock.value = battle['ends_at'] - .1
+        refresh(page)
+        expect(page.locator('#battle-seconds')).to_have_text('1')
+        # Drain in-flight presence/state responses before advancing local time:
+        # each authoritative response correctly resets the display offset.
+        page.wait_for_load_state('networkidle')
+        held_updates = []
+        for endpoint in ('state', 'presence'):
+            page.route('**/api/v1/' + endpoint, lambda route: held_updates.append(route))
+        # Run the display clock normally for this transition instead of freezing
+        # it at a fractional deadline while a final response is being rendered.
+        page.evaluate('window.battleWaitingClock = setInterval(() => battleAdvanceTime(250), 250)')
+        expect(page.locator('#battle-seconds')).to_have_text('0')
+        page.evaluate('clearInterval(battleWaitingClock)')
+        expect(page.locator('#battle-caption')).to_have_text('Battle finished. Waiting for the server result…')
+        assert_controls(page, 'waiting for result')
+        page.screenshot(path=str(artifacts / f'battle-{width}x{height}-waiting.png'))
         clock.value = battle['ends_at'] + 1
+        for route in held_updates:
+            route.continue_()
+        for endpoint in ('state', 'presence'):
+            page.unroute('**/api/v1/' + endpoint)
+        page.wait_for_load_state('networkidle')
         refresh(page)
         expect(page.locator('#navigation')).to_be_visible()
         expect(page.locator('.battle-layout')).to_have_count(0)
+        expect(page.locator('.last-battle-card, #last-result')).to_have_count(0)
+        expect(page.locator('.history-row')).not_to_have_count(0)
+        expect(page.locator('#battle-result-toast.ui-result')).to_be_visible()
+        page.screenshot(path=str(artifacts / f'battle-{width}x{height}-result.png'))
         page.locator('[data-tab=gear]').click()
         expect(page.locator('.equipment-grid')).to_be_visible()
+        # A prior completed fight must not reappear during the next battle.
+        page.locator('[data-tab=arena]').click()
+        if page.locator('[data-action=close-result]').is_visible():
+            page.locator('[data-action=close-result]').click()
+        command(page, '[data-action=start-bot]', 'battle/start')
+        assert_controls(page, 'second battle with history')
         context.close()
     assert not errors, errors
 
@@ -186,7 +281,7 @@ def main():
             server.shutdown()
             thread.join(timeout=5)
             server.server_close()
-    print('Battle browser checks passed: 320/360/390/430px, short height, RU/EN, dark/light, safe areas, reload, scroll, retry, tap cap, navigation restoration.')
+    print('Battle browser checks passed: 320/360/390/430px, short height, RU/EN, dark/light, shared styles, readable captions, safe areas, reload, scroll, retry, Space, tap cap, waiting state, navigation restoration.')
     print(f'Screenshots: {args.artifacts_dir}')
 
 

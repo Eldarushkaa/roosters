@@ -1,0 +1,43 @@
+/* Quick guide uses shared game materials, with a fixed header and scrollable body. */
+body.guide-open { overflow: hidden; }
+.guide-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  height: var(--app-height);
+  display: grid;
+  place-items: center;
+  padding: calc(12px + var(--app-inset-top)) calc(12px + var(--app-inset-right))
+    calc(12px + var(--app-inset-bottom)) calc(12px + var(--app-inset-left));
+  background: #031b42cf;
+}
+.guide-overlay[hidden] { display: none; }
+.quick-guide {
+  width: min(100%, 460px);
+  max-height: calc(var(--app-height) - var(--app-inset-top) - var(--app-inset-bottom) - 24px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: var(--ui-space-4);
+}
+.guide-header { display: flex; align-items: center; gap: var(--ui-space-3); flex-shrink: 0; padding-bottom: var(--ui-space-3); }
+.guide-header > div { flex: 1; min-width: 0; }
+.guide-header .eyebrow { color: var(--ui-muted); font-size: var(--ui-text-xs); }
+.guide-header h2 { margin: var(--ui-space-1) 0 0; font-size: 26px; }
+.guide-close { width: var(--ui-touch); height: var(--ui-touch); padding: 0; flex-shrink: 0; }
+.guide-content { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--ui-space-1) var(--ui-space-1) var(--ui-space-2); }
+.guide-content:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
+.guide-steps { display: grid; gap: var(--ui-space-4); list-style: none; padding: 0; margin: 0; }
+.guide-steps li { display: flex; align-items: flex-start; gap: var(--ui-space-3); }
+.guide-step-icon { width: 32px; height: 32px; padding: var(--ui-space-1); flex-shrink: 0; justify-content: center; }
+.guide-step-icon .ui-icon { width: 22px; height: 22px; }
+.guide-steps h3 { margin: 0 0 var(--ui-space-1); font: var(--ui-weight-display) var(--ui-text-body)/1.3 var(--ui-font-display); }
+.guide-steps p { margin: 0; font-size: var(--ui-text-sm); line-height: 1.45; }
+.guide-tip { display: flex; align-items: flex-start; gap: var(--ui-space-2); color: var(--ui-muted); font-size: var(--ui-text-sm); line-height: 1.45; margin: var(--ui-space-4) 0 0; }
+.guide-tip .ui-icon { width: 24px; height: 24px; flex-shrink: 0; }
+.guide-footer { display: flex; align-items: center; gap: var(--ui-space-3); padding-top: var(--ui-space-3); flex-shrink: 0; }
+.guide-footer > .ui-button { flex: 1; min-width: 0; }
+@media (max-width: 370px) {
+  .quick-guide { padding: var(--ui-space-3); }
+  .guide-steps { gap: var(--ui-space-3); }
+}

@@ -11,14 +11,16 @@ import math
 import secrets
 import time
 import uuid
+from contextlib import closing
 
-from . import rules, rules_v1, rules_v2, rules_v3, wallet
+from . import rules, rules_v1, rules_v2, rules_v3, rules_v4, rules_v5, wallet
 from .errors import GameError
+from .rules import MIN_STAKE_MINOR, MAX_STAKE_MINOR, STAKE_STEP_MINOR
 
 
 # Monetary storage and settlement distinguish these two archived formats from
 # the minor-unit wager format. Never compare to the *current* release label:
-# adding v4 must not reinterpret an already committed v3 stake as old medals.
+# a new release must not reinterpret a committed minor-unit stake as medals.
 LEGACY_ECONOMY_VERSIONS = frozenset({"v1", "v2"})
 
 
@@ -37,7 +39,8 @@ class GameService:
         self.random_float = random_float or (lambda: secrets.randbelow(10**12) / 10**12)
         # Persisted matches keep their original timing, odds and rewards.
         self.engines = {rules_v1.RULES_VERSION: rules_v1, rules_v2.RULES_VERSION: rules_v2,
-                        rules_v3.RULES_VERSION: rules_v3, rules.RULES_VERSION: rules}
+                        rules_v3.RULES_VERSION: rules_v3, rules_v4.RULES_VERSION: rules_v4,
+                        rules_v5.RULES_VERSION: rules_v5, rules.RULES_VERSION: rules}
 
     def register(self, player_id, name, is_dev, referral=""):
         now = self.clock()
@@ -122,9 +125,49 @@ class GameService:
 
     @staticmethod
     def _stake(value, allow_free=False):
-        if type(value) is not int or (value not in rules.STAKES_MINOR and not (allow_free and value == 0)):
-            raise GameError("invalid_stake", "Выберите ставку 10, 25, 50 или 100 монет.")
-        return value
+        if allow_free and type(value) is int and value == 0:
+            return 0
+        try:
+            return rules._stake(value)
+        except ValueError:
+            raise GameError("invalid_stake", "Ставка должна быть от 10 монет, с шагом 0,01 и в пределах доступного максимума.") from None
+
+    @staticmethod
+    def _stake_limits(player):
+        # Keep current JSON integers and even the largest eventual prize exact.
+        # The additional headroom bound prevents a high pre-existing SQLite
+        # balance from overflowing when its stake returns with up to 116% net.
+        balance = player["balance_minor"]
+        sqlite_headroom = (wallet.MAX_MINOR_UNITS - balance) * 25 // 29
+        return {"min_minor": MIN_STAKE_MINOR,
+                "max_minor": min(balance, MAX_STAKE_MINOR, sqlite_headroom),
+                "step_minor": STAKE_STEP_MINOR}
+
+    def _funded_stake(self, player, value, allow_free=False):
+        stake = self._stake(value, allow_free)
+        if stake > player["balance_minor"]:
+            raise GameError("insufficient_funds", "Недостаточно монет для этой ставки.", 409)
+        if stake > self._stake_limits(player)["max_minor"]:
+            raise GameError("invalid_stake", "Ставка превышает доступный максимум.")
+        return stake
+
+    def battle_quote(self, player_id, stake_minor):
+        """Read an advisory quote without settlement, random draws or writes.
+
+        Entry still checks current funds and expected_power in its transaction;
+        a quote cannot reserve funds or authorize a stale/changed-power start.
+        """
+        with closing(self.database.connect()) as db:
+            db.execute("PRAGMA query_only=ON")
+            db.execute("BEGIN")
+            player = self._player(db, player_id)
+            stake = self._funded_stake(player, stake_minor)
+            power = self._power(player)
+            lower, upper = rules.bot_power_bounds(power)
+            return {"rules_version": rules.RULES_VERSION, "power": power, "stake_minor": stake,
+                    "bot": {"min_payout_minor": rules.bot_payout(stake, power, lower),
+                            "max_payout_minor": rules.bot_payout(stake, power, upper)},
+                    "online": {"win_payout_minor": rules.online_payout(stake)}}
 
     def _execute(self, db, pid, op, body, key, now):
         player = self._player(db, pid)
@@ -185,7 +228,7 @@ class GameService:
                 raise GameError("invalid_mode", "Для онлайн-боя найдите соперника.")
             if type(body["expected_power"]) is not int or body["expected_power"] != self._power(player):
                 raise GameError("power_changed", "Мощь изменилась. Обновите арену перед ставкой.", 409)
-            stake = self._stake(body["stake_minor"], allow_free=True)
+            stake = self._funded_stake(player, body["stake_minor"], allow_free=True)
             if stake == 0 and player["first_battle_used"]:
                 raise GameError("free_battle_used", "Первый бесплатный бой уже использован.", 409)
             battle_id = self._start_battle(db, player, None, "bot", stake, now)
@@ -193,17 +236,16 @@ class GameService:
         if op == "queue/join":
             self._fields(body, ["stake_minor"])
             self._available(db, player)
-            stake = self._stake(body["stake_minor"])
-            if player["balance_minor"] < stake:
-                raise GameError("insufficient_funds", "Недостаточно монет для этой ставки.", 409)
+            stake = self._funded_stake(player, body["stake_minor"])
             strength = self._power(player)
-            candidate = db.execute("""SELECT q.*,p.name FROM queue q JOIN players p ON p.id=q.player_id
-                WHERE p.is_dev=? AND p.last_seen>? AND p.balance_minor>=? AND q.expires_at>? AND q.stake_minor=?
-                AND q.power BETWEEN ? AND ? ORDER BY q.joined_at LIMIT 1""",
-                (player["is_dev"], now-self.PRESENCE_TTL, stake, now, stake, strength/1.35, strength*1.35)).fetchone()
+            candidate = db.execute("""SELECT q.* FROM queue q JOIN players p ON p.id=q.player_id
+                WHERE p.is_dev=? AND p.last_seen>? AND p.balance_minor>=q.stake_minor AND q.expires_at>?
+                AND p.balance_minor<=?-((29*q.stake_minor+24)/25)
+                ORDER BY q.joined_at,q.player_id LIMIT 1""",
+                (player["is_dev"], now-self.PRESENCE_TTL, now, wallet.MAX_MINOR_UNITS)).fetchone()
             if candidate:
                 opponent = self._player(db, candidate["player_id"])
-                battle_id = self._start_battle(db, opponent, player, "online", stake, now)
+                battle_id = self._start_battle(db, opponent, player, "online", candidate["stake_minor"], now, stake_b=stake)
                 db.execute("DELETE FROM queue WHERE player_id=?", (opponent["id"],))
                 return {"battle_id": battle_id, "matched": True}
             db.execute("INSERT INTO queue(player_id,power,joined_at,expires_at,deadline,stake_minor) VALUES (?,?,?,?,?,?)",
@@ -252,7 +294,7 @@ class GameService:
     def _snapshot(self, player):
         return {"name": player["name"], "power": self._power(player), "breed_id": player["breed_id"]}
 
-    def _start_battle(self, db, player_a, player_b, mode, stake, now):
+    def _start_battle(self, db, player_a, player_b, mode, stake, now, stake_b=None):
         """Commit opponent, draw, quote and both debits before roulette begins.
 
         The animation never chooses a new opponent. A lost response, restart or
@@ -269,15 +311,17 @@ class GameService:
                       "breed_id": secrets.choice(rules.BREEDS)["id"]}
         payout = (rules.online_payout(stake) if player_b else
                   rules.bot_payout(stake, snap_a["power"], snap_b["power"]) if stake else rules.FREE_REWARD_MINOR)
-        for player in (player_a, player_b):
+        stake_b = (stake if stake_b is None else stake_b) if player_b else 0
+        payout_b = rules.online_payout(stake_b) if player_b else 0
+        for player, entry in ((player_a, stake), (player_b, stake_b)):
             if player:
-                wallet.change(db, player["id"], -stake, "battle_entry", battle_id, now)
+                wallet.change(db, player["id"], -entry, "battle_entry", battle_id, now)
         starts = now + rules.ROULETTE_DURATION
-        db.execute("""INSERT INTO battles(id,player_a,player_b,mode,rules_version,snapshot_a,snapshot_b,draw,starts_at,ends_at,tap_at_a,tap_at_b,stake_minor,win_payout_minor,created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        db.execute("""INSERT INTO battles(id,player_a,player_b,mode,rules_version,snapshot_a,snapshot_b,draw,starts_at,ends_at,tap_at_a,tap_at_b,stake_minor,win_payout_minor,stake_b_minor,win_payout_b_minor,created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                    (battle_id, player_a["id"], player_b["id"] if player_b else None, mode, rules.RULES_VERSION,
                     encode(snap_a), encode(snap_b), self.random_float(), starts, starts+rules.BATTLE_DURATION, starts, starts,
-                    stake, payout, now))
+                    stake, payout, stake_b, payout_b, now))
         for player in (player_a, player_b):
             if player:
                 db.execute("UPDATE players SET battle_id=?,first_battle_used=1 WHERE id=?", (battle_id, player["id"]))
@@ -301,12 +345,13 @@ class GameService:
         real_pvp = battle["mode"] == "online" and battle["player_b"] and not any(
             self._player(db, pid)["is_dev"] for pid in (battle["player_a"], battle["player_b"]))
         results = []
-        for pid, won in ((battle["player_a"], won_a), (battle["player_b"], not won_a)):
+        for side, pid, won in (("a", battle["player_a"], won_a), ("b", battle["player_b"], not won_a)):
             if modern:
-                free = battle["stake_minor"] == 0
-                payout = battle["win_payout_minor"] if won or free else 0
+                stake, prize = self._wager(battle, side)
+                free = stake == 0
+                payout = prize if won or free else 0
                 reward = dict(engine.rewards("free" if free else battle["mode"], won), won=won,
-                              payout_minor=payout, net_minor=payout-battle["stake_minor"])
+                              payout_minor=payout, net_minor=payout-stake)
             else:
                 original = engine.rewards(battle["mode"], won)
                 payout = (original["coins"] + original["medals"]*10)*rules.COIN_SCALE
@@ -317,7 +362,7 @@ class GameService:
                 continue
             wallet.change(db, pid, payout, "battle_reward", battle["id"], now)
             db.execute("UPDATE players SET xp=xp+?,wins=wins+?,losses=losses+?,battles=battles+1,ranked_battles=ranked_battles+?,pvp_wins=pvp_wins+? WHERE id=?",
-                       (reward["xp"], int(won), int(not won), int(battle["mode"]!="practice" and (not modern or battle["stake_minor"] > 0)),
+                       (reward["xp"], int(won), int(not won), int(battle["mode"]!="practice" and (not modern or stake > 0)),
                         int(bool(real_pvp) and won), pid))
             self._refresh_power(db, pid)
             self._referral_reward(db, pid, now)
@@ -332,6 +377,13 @@ class GameService:
             for beneficiary in (pid, player["inviter_id"]):
                 wallet.change(db, beneficiary, rules.REFERRAL_MINOR, "referral", pid, now)
             db.execute("UPDATE players SET referral_paid=1 WHERE id=?", (pid,))
+
+    @staticmethod
+    def _wager(battle, side):
+        """Return this side's immutable quote, including migrated equal stakes."""
+        if side == "b" and battle["player_b"]:
+            return battle["stake_b_minor"], battle["win_payout_b_minor"]
+        return battle["stake_minor"], battle["win_payout_minor"]
 
     def _battle_view(self, battle, pid, now):
         engine = self.engines[battle["rules_version"]]
@@ -351,7 +403,7 @@ class GameService:
                 if opponent["is_bot"] else engine.win_probability(
                     you["power"], opponent["power"], you["taps"], opponent["taps"]))
         result = json.loads(battle["result_"+side]) if battle["result_"+side] else None
-        stake, payout = battle["stake_minor"], battle["win_payout_minor"]
+        stake, payout = self._wager(battle, side)
         if not modern:
             stake = 0 if battle["mode"] == "practice" else engine.ENTRY_FEE*10*rules.COIN_SCALE
             win_reward = engine.rewards(battle["mode"], True)
@@ -387,12 +439,15 @@ class GameService:
         lower, upper = rules.bot_power_bounds(player["power"])
         return {"server_time": now, "rules_version": rules.RULES_VERSION, "player": player,
                 "economy": {"first_free_battle_available": not bool(row["first_battle_used"]),
+                            "stake_limits": self._stake_limits(row),
                             "passive_available_minor": self._passive(row, now), "daily_reward_minor": rules.DAILY_MINOR,
                             "daily_available": not row["daily_at"] or now >= row["daily_at"]+86400,
                             "next_daily_at": row["daily_at"]+86400 if row["daily_at"] else 0,
                             "upgrade_costs_minor": {slot: rules.upgrade_cost(level) for slot, level in player["gear"].items()},
                             "bot_quotes": [{"stake_minor": stake, "min_payout_minor": rules.bot_payout(stake, player["power"], lower),
-                                            "max_payout_minor": rules.bot_payout(stake, player["power"], upper)} for stake in rules.STAKES_MINOR]},
+                                            "max_payout_minor": rules.bot_payout(stake, player["power"], upper)} for stake in rules.STAKES_MINOR],
+                            "online_quotes": [{"stake_minor": stake, "win_payout_minor": rules.online_payout(stake)}
+                                              for stake in rules.STAKES_MINOR]},
                 "catalog": rules.catalog(), "presence": {"online": counts.get(0, 0), "development_online": counts.get(1, 0), "searching": searching},
                 "queue": dict(queue) if queue else None, "battle": self._battle_view(battle, pid, now) if battle else None,
                 "history": [self._battle_view(b, pid, now) for b in history]}

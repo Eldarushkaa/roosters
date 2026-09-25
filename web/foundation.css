@@ -1,0 +1,266 @@
+/* Shared illustrated UI. Legacy/runtime globals remain unchanged.
+   Load after screen styles. Components require explicit ui-* classes. */
+@font-face {
+  font-family: Arena Nunito;
+  src: url('./assets/fonts/Nunito.ttf') format('truetype');
+  font-weight: 200 1000;
+  font-display: swap;
+}
+
+:root {
+  --ui-ink: #06172e;
+  --ui-bg: #075cdb;
+  --ui-panel: #052b63;
+  --ui-panel-raised: #0845b4;
+  --ui-panel-result: #202457;
+  --ui-text: #ffffff;
+  --ui-muted: #c2ddff;
+  --ui-muted-on-blue: #d8eaff;
+  --ui-gold: #ffcd12;
+  --ui-purple: #873fe4;
+  --ui-success: #bdff9e;
+  --ui-error: #ffb9c7;
+  --ui-focus: #fff79c;
+  --ui-control-disabled: #244974;
+  --ui-text-disabled: #d1e0ed;
+  --ui-font-body: Arial, Helvetica, sans-serif;
+  --ui-font-display: 'Arena Nunito', sans-serif;
+  --ui-text-xs: 12px;
+  --ui-text-sm: 14px;
+  --ui-text-body: 15px;
+  --ui-text-lg: 16px;
+  --ui-text-action: 20px;
+  --ui-text-title: 23px;
+  --ui-text-headline: 28px;
+  --ui-leading-body: 1.4;
+  --ui-leading-title: 1.1;
+  --ui-weight-display: 1000;
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-6: 24px;
+  --ui-radius-sm: 6px;
+  --ui-radius: 10px;
+  --ui-radius-panel: 12px;
+  --ui-radius-action: 18px;
+  --ui-border: 2.5px solid var(--ui-ink);
+  --ui-outline-text: 2.8px;
+  --ui-outline-title: 3.5px;
+  --ui-shadow: 0 3px #031b42;
+  --ui-face-blue: linear-gradient(130deg, #116bbb, #063e88 64%, #08336e);
+  --ui-face-gold: linear-gradient(125deg, #fff27e90 0 5%, transparent 6% 89%, #ffe25980 90% 94%, transparent 95%), linear-gradient(#ffe52d 0%, #ffcd12 52%, #ffb10b 82%, #ed7804 84%);
+  --ui-face-purple: linear-gradient(120deg, #c65cfe 0 6%, transparent 7% 91%, #aa35ff 92%), linear-gradient(#a33fff, #771afa 68%, #5011c1 70%);
+  --ui-face-panel: linear-gradient(115deg, #064382, var(--ui-panel));
+  --ui-face-inset: linear-gradient(110deg, #073a81, #052655);
+  --ui-face-result: linear-gradient(125deg, #2d2670, var(--ui-panel-result));
+  --ui-face-disabled: repeating-linear-gradient(135deg, var(--ui-control-disabled) 0 10px, #20426b 10px 20px);
+  --ui-bevel-blue: inset 2px 3px #3aa9f0, inset -2px -4px #092a63, var(--ui-shadow);
+  --ui-bevel-gold: inset 2px 3px #fff7a4, inset -2px -4px #d67500, 0 4px #041835;
+  --ui-bevel-purple: inset 2px 3px #e9adff, inset -2px -4px #47108a, var(--ui-shadow);
+  --ui-motion-fast: 120ms;
+  --ui-motion-normal: 180ms;
+  --ui-touch: 44px;
+  --ui-nav-tile-height: 68px;
+  --ui-nav-icon-size: 31px;
+  --ui-nav-reserve: 112px;
+}
+
+/* Neither Telegram theme mutates these game roles. Text/amounts stay in DOM. */
+.ui-body { color: var(--ui-text); font: var(--ui-text-body)/var(--ui-leading-body) var(--ui-font-body); }
+.ui-muted { color: var(--ui-muted); }
+/* Screens opt into the same game environment as they migrate. Legacy palette
+   aliases are local; environment.mjs continues to own native theme and insets. */
+.ui-shell, .ui-screen {
+  --ui-muted: var(--ui-muted-on-blue);
+  --bg: var(--ui-bg);
+  --panel: var(--ui-panel);
+  --panel-light: var(--ui-panel-raised);
+  --text: var(--ui-text);
+  --muted: var(--ui-muted);
+  --line: var(--ui-ink);
+  --accent: var(--ui-gold);
+  --amber: var(--ui-gold);
+  --lime: var(--ui-success);
+  --red: var(--ui-error);
+  color: var(--ui-text);
+}
+:root.ui-game-screen, .ui-game-screen body, .app-shell.ui-shell { background: var(--ui-bg); }
+.ui-game-screen body::before { border-color: var(--ui-bg); }
+.ui-shell .app-footer { color: var(--ui-muted); }
+.ui-screen {
+  display: grid;
+  gap: var(--ui-space-6);
+  min-width: 0;
+  padding-bottom: var(--ui-space-2);
+  background: var(--ui-bg);
+  font: var(--ui-text-body)/var(--ui-leading-body) var(--ui-font-body);
+  overflow-wrap: anywhere;
+}
+.ui-screen p { margin: 0; }
+.ui-screen :is(h1, h2, h3) { margin: 0; }
+.ui-screen-heading { display: flex; align-items: center; gap: var(--ui-space-3); min-width: 0; }
+.ui-screen-heading > .ui-icon { width: 36px; height: 36px; }
+.ui-screen-heading > :is(h1, h2, div) { min-width: 0; }
+.ui-screen :is(button, a, [tabindex]):focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 3px; }
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-1);
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--ui-space-1) var(--ui-space-2);
+  border: 2px solid var(--ui-ink);
+  border-radius: var(--ui-radius-sm);
+  background: var(--ui-panel);
+  color: var(--ui-muted);
+  font: 800 var(--ui-text-sm)/1.3 var(--ui-font-display);
+}
+.ui-badge .ui-icon { width: 16px; height: 16px; }
+.ui-badge[data-tone=accent] { background: var(--ui-panel-result); border-color: var(--ui-purple); color: var(--ui-text); }
+.ui-badge[data-tone=success] { border-color: var(--ui-success); color: var(--ui-success); }
+.ui-badge[data-tone=error] { border-color: var(--ui-error); color: var(--ui-error); }
+.ui-badge[data-tone=highlight] { background: var(--ui-face-gold); color: var(--ui-ink); }
+.ui-icon { display: inline-block; width: 1em; height: 1em; flex: 0 0 auto; vertical-align: -.13em; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.ui-headline, .ui-title, .ui-display {
+  color: var(--ui-text);
+  font-family: var(--ui-font-display);
+  font-weight: var(--ui-weight-display);
+  paint-order: stroke fill;
+  -webkit-text-stroke: var(--ui-outline-title) var(--ui-ink);
+  text-shadow: 0 2px var(--ui-ink);
+}
+.ui-headline { font-size: var(--ui-text-headline); line-height: var(--ui-leading-title); }
+.ui-title { margin: 0; font-size: var(--ui-text-title); line-height: var(--ui-leading-title); letter-spacing: -.6px; }
+.ui-display { -webkit-text-stroke-width: var(--ui-outline-text); text-shadow: 0 1px var(--ui-ink); }
+.ui-section-title { display: table; position: relative; isolation: isolate; text-transform: uppercase; padding: 4px; max-width: 100%; }
+.ui-section-title::before { content: ''; position: absolute; z-index: -1; inset: 2px -4px 1px; background: #07388b; transform: skew(-10deg); border-radius: var(--ui-radius-sm); }
+
+.ui-panel, .ui-info, .ui-status, .ui-result {
+  box-sizing: border-box;
+  color: var(--ui-text);
+  font: var(--ui-text-body)/var(--ui-leading-body) var(--ui-font-body);
+  border: var(--ui-border);
+  border-radius: var(--ui-radius-panel);
+  background: var(--ui-face-panel);
+  box-shadow: inset 0 0 0 2px #137ada, var(--ui-shadow);
+  padding: var(--ui-space-3);
+  min-width: 0;
+}
+.ui-panel-inset { background: var(--ui-face-inset); border-width: 2px; border-radius: var(--ui-radius); box-shadow: inset 0 2px #155ab0; }
+.ui-panel-raised { background: linear-gradient(110deg, #0d65dc, var(--ui-panel-raised)); box-shadow: inset 0 0 0 2px #308bf0, var(--ui-shadow); }
+.ui-info { display: flex; gap: var(--ui-space-2); font-size: var(--ui-text-sm); }
+.ui-info > :last-child { flex: 1; min-width: 0; }
+.ui-result { background: var(--ui-face-result); box-shadow: inset 0 0 0 3px var(--ui-purple), 0 4px #033484; }
+.ui-result-heading { background: linear-gradient(120deg, #aa44f5, #6723c4); border-top: 2px solid #d489ff; border-radius: 6px 0 12px 0; padding: 5px 8px 8px 5px; }
+.ui-status { background: #06346e; border: 2px solid #78c0ff; border-radius: 7px; padding: var(--ui-space-2); font-size: var(--ui-text-sm); box-shadow: none; }
+.ui-status[data-tone=error] { border-color: #ff8699; color: #ffe0e6; background: #482141; }
+.ui-status[data-tone=success] { border-color: #9ee37a; color: #e0ffcf; background: #164533; }
+.ui-outcome { font: var(--ui-weight-display) 18px/1.2 var(--ui-font-display); paint-order: stroke fill; -webkit-text-stroke: 2.5px #21162e; background: #fa4968; padding: 5px 6px; color: #fff0f3; box-shadow: 0 3px #84113f; }
+.ui-result[data-tone=success] .ui-outcome { background: #76d648; color: var(--ui-text); box-shadow: 0 3px #276b41; }
+.ui-result[data-tone=error] .ui-net { color: var(--ui-error); }
+.ui-result[data-tone=success] .ui-net { color: var(--ui-success); }
+.ui-net { font: var(--ui-weight-display) 18px/1.2 var(--ui-font-display); white-space: nowrap; }
+
+.ui-button {
+  box-sizing: border-box;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ui-space-1);
+  min-width: var(--ui-touch);
+  min-height: var(--ui-touch);
+  padding: var(--ui-space-2) var(--ui-space-3);
+  color: var(--ui-text);
+  border: var(--ui-border);
+  border-radius: var(--ui-radius);
+  background: var(--ui-face-blue);
+  box-shadow: var(--ui-bevel-blue);
+  font: var(--ui-weight-display) var(--ui-text-lg)/1.2 var(--ui-font-display);
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: translate var(--ui-motion-fast), box-shadow var(--ui-motion-fast);
+}
+.ui-button.ui-primary { min-height: 52px; border-width: 3px; border-radius: var(--ui-radius-action); font-size: var(--ui-text-action); }
+.ui-button.ui-accent { background: var(--ui-face-purple); box-shadow: var(--ui-bevel-purple); }
+.ui-button.ui-accent:not([aria-pressed=true]) { paint-order: stroke fill; -webkit-text-stroke: 2px var(--ui-ink); }
+.ui-button.ui-primary, .ui-button[aria-pressed=true], .ui-nav .ui-button[aria-current=page] { background: var(--ui-face-gold); box-shadow: var(--ui-bevel-gold); }
+/* Gold controls need outlined display text or ink-colored body text. */
+.ui-button.ui-primary, .ui-button[aria-pressed=true] { color: var(--ui-ink); }
+.ui-button:active:not(:disabled):not([aria-disabled=true]) { transform: none; translate: 0 3px; box-shadow: inset 1px 2px #ffffff65, inset -1px -2px #082958, 0 0 #031b42; }
+.ui-button:disabled, .ui-button[aria-disabled=true] {
+  opacity: 1;
+  color: var(--ui-text-disabled);
+  background: var(--ui-face-disabled);
+  box-shadow: inset 0 2px #4b769d, var(--ui-shadow);
+  cursor: not-allowed;
+}
+.ui-button[aria-pressed=true]:disabled, .ui-button[aria-pressed=true][aria-disabled=true] { box-shadow: inset 0 0 0 2px #98b5d1, var(--ui-shadow); }
+.ui-button[aria-busy=true] { cursor: wait; }
+.ui-button:focus-visible, .ui-panel summary:focus-visible { outline: 3px solid var(--ui-focus); outline-offset: 3px; z-index: 8; }
+.ui-button.ui-display { color: var(--ui-text); -webkit-text-stroke-width: var(--ui-outline-text); }
+.ui-segmented { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ui-space-2); }
+.ui-chip-group { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.ui-button.ui-chip { padding: 4px 1px; white-space: nowrap; font-size: var(--ui-text-title); line-height: 1; }
+.ui-chip [data-icon=coin] { width: 19px; height: 19px; }
+.ui-chip [data-icon=check] { width: 15px; height: 15px; }
+.ui-selection { display: none; color: var(--ui-ink); }
+[aria-pressed=true] > .ui-selection { display: inline-flex; }
+.ui-button:disabled > .ui-selection, .ui-button[aria-disabled=true] > .ui-selection { color: var(--ui-text-disabled); }
+.ui-spinner { width: 18px; height: 18px; flex-shrink: 0; border: 3px solid #d1eaff; border-right-color: #6096c4; border-radius: 50%; display: inline-block; }
+/* Busy state also requires live localized text, not motion alone. */
+.ui-button[aria-busy=true] .ui-spinner { animation: ui-spin .8s linear infinite; }
+@keyframes ui-spin { to { rotate: 360deg; } }
+
+/* Compact selector for locale and other short labels; underline reinforces selection. */
+.ui-segmented-compact { display: flex; gap: 0; border: 3px solid var(--ui-ink); border-radius: var(--ui-radius-panel); overflow: hidden; box-shadow: var(--ui-shadow); }
+.ui-segmented-compact .ui-button { width: var(--ui-touch); padding: 0; border: 0; border-radius: 0; color: #b6d5ff; background: linear-gradient(#124cbb, #06347f); box-shadow: inset 0 3px #457fd7; }
+.ui-segmented-compact .ui-button + .ui-button { border-left: 2px solid var(--ui-ink); }
+.ui-segmented-compact .ui-button[aria-pressed=true] { background: linear-gradient(#159bff, #0554e4); color: var(--ui-text); }
+.ui-segmented-compact .ui-button[aria-pressed=true]::after { content: ''; position: absolute; bottom: 6px; left: 12px; right: 12px; height: 3px; background: var(--ui-gold); border-radius: 2px; box-shadow: 0 1px var(--ui-ink); }
+.ui-segmented-compact .ui-button:disabled { background: var(--ui-face-disabled); color: var(--ui-text-disabled); }
+.ui-segmented-compact .ui-button:active:not(:disabled) { translate: none; box-shadow: inset 0 3px #04327f; }
+.ui-segmented-compact:focus-within { outline: 3px solid var(--ui-focus); outline-offset: 3px; }
+
+.ui-progress { box-sizing: border-box; height: 13px; min-width: 46px; background: #031b43; border: 2px solid #020e29; border-radius: 5px; box-shadow: 0 1px #2079b7; overflow: hidden; }
+.ui-progress > span, .ui-progress > .ui-progress-fill { display: block; height: 100%; background: linear-gradient(#fff16d 0 20%, #ffcc15 25% 60%, #ff9f08 80%); border-radius: 2px; }
+
+.ui-nav { box-sizing: border-box; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; flex-shrink: 0; padding: 4px 6px 7px; background: linear-gradient(#06469d, #05295b); border: 0; border-top: 2px solid #2089e8; }
+.ui-nav .ui-nav-item { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-width: 0; min-height: var(--ui-nav-tile-height); padding: 5px 0 6px; border-radius: 13px 13px 8px 8px; font-size: 13px; line-height: 1.15; box-shadow: inset 2px 3px #4597d0, inset -3px -5px #062348, 0 3px #02132d; letter-spacing: -.35px; }
+.ui-nav .ui-nav-item[aria-current=page] { margin-top: -3px; min-height: calc(var(--ui-nav-tile-height) + 3px); }
+.ui-nav .ui-nav-item svg { width: var(--ui-nav-icon-size); height: var(--ui-nav-icon-size); filter: drop-shadow(0 2px #03132e); }
+.ui-nav .ui-nav-item[aria-current=page] svg { width: calc(var(--ui-nav-icon-size) + 3px); height: calc(var(--ui-nav-icon-size) + 3px); }
+.ui-nav .ui-nav-item > span:last-child { color: var(--ui-text); paint-order: stroke fill; -webkit-text-stroke: 2px var(--ui-ink); text-shadow: 0 1px var(--ui-ink); overflow-wrap: anywhere; }
+/* The live shell retains its existing stable-viewport positioning and insets. */
+.bottom-nav.ui-nav { border-radius: var(--ui-radius-panel); padding-inline: 0; }
+.bottom-nav.ui-nav .ui-nav-item > span[aria-hidden] { display: grid; place-items: center; height: auto; line-height: 1; }
+/* Unavailable always wins over compound selected/current component selectors. */
+.ui-nav .ui-button:is(:disabled, [aria-disabled=true]),
+.ui-segmented-compact .ui-button:is(:disabled, [aria-disabled=true]) {
+  background: var(--ui-face-disabled);
+  color: var(--ui-text-disabled);
+  box-shadow: inset 0 2px #4b769d, var(--ui-shadow);
+}
+.ui-nav .ui-button[aria-current=page]:is(:disabled, [aria-disabled=true]) {
+  box-shadow: inset 0 0 0 2px #98b5d1, var(--ui-shadow);
+}
+:is(.ui-button, .ui-panel, .ui-info, .ui-status, .ui-result, .ui-nav)[hidden] { display: none !important; }
+
+/* Give the longer existing Gear/Roost labels room before reducing type size. */
+@media (max-width: 370px) {
+  .ui-nav { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1.1fr) minmax(0, 1fr); }
+}
+@media (max-width: 335px) {
+  .ui-nav .ui-nav-item { font-size: var(--ui-text-xs); }
+  .ui-button.ui-chip { font-size: 21px; gap: 2px; }
+  .ui-chip [data-icon=coin] { width: 17px; height: 17px; }
+  .ui-chip [data-icon=check] { width: 12px; height: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-button { transition: none; }
+  .ui-button:active:not(:disabled):not([aria-disabled=true]) { translate: none; transform: none; }
+  .ui-button[aria-busy=true] .ui-spinner { animation: none; }
+}

@@ -11,29 +11,62 @@ import { createFeedback } from '../feedback.mjs';
 const source = (await readFile(new URL('../app.js', import.meta.url), 'utf8'))
   .replace(/^import .* from '\.\/i18n\.mjs';\n/m, '')
   .replace(/^import .* from '\.\/environment\.mjs';\n/m, '')
-  .replace(/^import .* from '\.\/(icons|feedback)\.mjs';\n/gm, '')
+  .replace(/^import .* from '\.\/(icons|feedback|guide)\.mjs';\n/gm, '')
   .replace(/\nboot\(\);\s*$/, '\n');
 const playerState = (id = 'dev:tester') => ({
   server_time: Date.now() / 1000,
+  rules_version: 'v6',
   player: { id, name: 'Игрок', is_dev: id.startsWith('dev:'), balance_minor: 42000, power: 100, breed_id: 'yard', owned_breeds: ['yard'], level: 1, xp_in_level: 0, xp_to_next: 100, wins: 0, losses: 0, battles: 0, pvp_wins: 0, gear: {} },
-  economy: { first_free_battle_available: true, passive_available_minor: 0, daily_reward_minor: 17000, daily_available: true, next_daily_at: 0, upgrade_costs_minor: {}, bot_quotes: [1000, 2500, 5000, 10000].map((stake_minor) => ({ stake_minor, min_payout_minor: stake_minor * 1.5, max_payout_minor: stake_minor * 2.5 })) },
-  catalog: { breeds: [{ id: 'yard', name: 'Дворовый', price_minor: 0, power_multiplier: 1, power_multiplier_percent: 100, color: '#f3ad55' }], slots: [], battle: { duration: 10, roulette_duration: 2, tap_cap: 80, stakes_minor: [1000, 2500, 5000, 10000], bot_power_min_ratio: 0.7, bot_power_max_ratio: 1.4, bot_rtp_min: 0.9, bot_rtp_max: 1.05, pvp_pool_return: 0.95, free_reward_minor: 1500 } },
+  economy: { first_free_battle_available: true, passive_available_minor: 0, daily_reward_minor: 17000, daily_available: true, next_daily_at: 0, upgrade_costs_minor: {}, stake_limits: { min_minor: 1000, max_minor: 42000, step_minor: 1 }, bot_quotes: [1000, 2500, 5000, 10000].map((stake_minor) => ({ stake_minor, min_payout_minor: stake_minor * 1.5, max_payout_minor: stake_minor * 2.5 })), online_quotes: [{ stake_minor: 1000, win_payout_minor: 1900 }, { stake_minor: 2500, win_payout_minor: 4750 }, { stake_minor: 5000, win_payout_minor: 9500 }, { stake_minor: 10000, win_payout_minor: 19000 }] },
+  catalog: { breeds: [{ id: 'yard', name: 'Дворовый', price_minor: 0, power_multiplier: 1, power_multiplier_percent: 100, color: '#f3ad55' }], slots: [], battle: { duration: 10, roulette_duration: 2, tap_cap: 90, stakes_minor: [1000, 2500, 5000, 10000], bot_power_min_ratio: 0.7, bot_power_max_ratio: 1.4, bot_rtp_min: 0.9, bot_rtp_max: 1.10, pvp_win_multiplier: 1.9, free_reward_minor: 1500 } },
   presence: { online: 0, searching: 0, development_online: 1 }, history: [], queue: null, battle: null,
 });
 const reply = (status, payload) => ({ status, ok: status >= 200 && status < 300, json: async () => payload });
+const customQuote = (stake_minor, power = 100) => ({
+  rules_version: 'v6', power, stake_minor,
+  bot: { min_payout_minor: 17001, max_payout_minor: 24002 },
+  online: { win_payout_minor: 23003 },
+});
+const rangeTag = (html) => html.match(/<input\b[^>]*id="arena-stake-range"[^>]*>/)?.[0] ?? '';
+const actionTag = (html, action) => html.match(new RegExp(`<button\\b[^>]*data-action="${action}"[^>]*>`))?.[0] ?? '';
 
 function harness({ fetch, entries = {}, localEntries = {}, initData = '' } = {}) {
   const session = new Map(Object.entries(entries));
   const local = new Map(Object.entries(localEntries));
   const store = (data) => ({ getItem: (key) => data.get(key) ?? null, setItem: (key, value) => data.set(key, String(value)), removeItem: (key) => data.delete(key) });
   const elements = new Map();
-  const element = () => ({ hidden: false, dataset: {}, style: {}, classList: { toggle() {}, add() {}, remove() {} }, addEventListener() {}, replaceChildren() {}, querySelectorAll: () => [], setAttribute() {}, removeAttribute() {} });
+  const element = () => ({ hidden: false, dataset: {}, style: {}, classList: { toggle() {}, add() {}, remove() {} }, addEventListener() {}, replaceChildren() {}, querySelectorAll: () => [], setAttribute() {}, removeAttribute() {}, focus() { sandbox.document.activeElement = this; } });
   const app = { initData, ready() {}, expand() {} };
   const intervals = [];
+  const timeouts = new Map();
+  let nextTimeout = 0;
   const listeners = new Map();
+  const guideCalls = [];
+  let guideMock;
   const sandbox = {
     createAppEnvironment: () => ({ telegram: app, start() { app.ready(); app.expand(); }, onResume(callback) { listeners.set('visibilitychange', callback); } }),
     icon, iconText, createFeedback: options => createFeedback({...options, win: {}, doc: {querySelector: () => null}}),
+    createGuide(options) {
+      let available = false;
+      let opened = false;
+      let seen = local.get('rooster.v1.guideSeen.v1') === '1';
+      guideMock = {
+        sync(value) {
+          guideCalls.push({ action: 'sync', ...value });
+          available = value.available;
+          if (!available) opened = false;
+          else if (value.autoAllowed && !seen) opened = true;
+        },
+        open() { guideCalls.push({ action: 'open' }); if (available) opened = true; },
+        close() {
+          guideCalls.push({ action: 'close' });
+          if (opened) { opened = false; seen = true; local.set('rooster.v1.guideSeen.v1', '1'); }
+        },
+        isOpen: () => opened,
+        content: () => options.getContent(),
+      };
+      return guideMock;
+    },
     crypto: webcrypto, Intl, URLSearchParams, AbortController, Date, console, createI18n, botNameKeys,
     fetch: fetch || (async () => { throw new Error('Unexpected fetch'); }),
     sessionStorage: store(session), localStorage: store(local),
@@ -44,7 +77,9 @@ function harness({ fetch, entries = {}, localEntries = {}, initData = '' } = {})
       hidden: false, activeElement: null, documentElement: {}, addEventListener(name, handler) { listeners.set(name, handler); }, querySelectorAll: () => [],
       querySelector(selector) { if (!elements.has(selector)) elements.set(selector, element()); return elements.get(selector); },
     },
-    setTimeout: () => 1, clearTimeout() {}, setInterval(fn, delay) { intervals.push({ fn, delay }); return intervals.length; },
+    setTimeout(fn, delay) { const id = ++nextTimeout; timeouts.set(id, { fn, delay }); return id; },
+    clearTimeout(id) { timeouts.delete(id); },
+    setInterval(fn, delay) { intervals.push({ fn, delay }); return intervals.length; },
   };
   vm.createContext(sandbox);
   new vm.Script(source + `
@@ -58,6 +93,8 @@ function harness({ fetch, entries = {}, localEntries = {}, initData = '' } = {})
       renderArena, renderQueue, renderBattle, renderRoost, renderResult, renderGear,
       renderHistory, renderLeaderboard, updateTimers, money, signedMoney, formatDate,
       acceptState, renderResultToast, closeResultToast,
+      currentStake, currentStakeQuotes, selectStake, ensureStakeQuote, loadStakeQuote,
+      syncGuide,
       changeLanguage, messageText, fighterName, localizedError, errorMessage, actualShowNotice, actualClearNotice,
       getLanguage() { return i18n.getLanguage(); },
       getBattleBuffer() { return { count: battleBuffer, battleId: bufferedBattleId }; },
@@ -70,7 +107,7 @@ function harness({ fetch, entries = {}, localEntries = {}, initData = '' } = {})
       disableRefresh() { refreshState = async () => { globalThis.refreshed = true; }; },
     };
   `).runInContext(sandbox);
-  return { ...sandbox, session, local, app, context: sandbox, intervals, listeners };
+  return { ...sandbox, session, local, app, context: sandbox, intervals, timeouts, listeners, guideMock, guideCalls };
 }
 
 test('lost purchase response retries the identical UUID and body only once', async () => {
@@ -158,6 +195,129 @@ test('a cached development account cannot replace a Telegram launch identity', a
   assert.equal(env.session.get('rooster.v1.authContext'), 'tg:42');
 });
 
+test('automatic guide opening waits for boot recovery of the original pending command', async () => {
+  const state = playerState('tg:42');
+  const command = { path: '/claim/daily', body: {}, key: 'recover-before-guide', owner: 'tg:42', attempts: 1 };
+  const launch = new URLSearchParams({ user: JSON.stringify({ id: 42 }), auth_date: '1' }).toString();
+  const sent = [];
+  let finishRecovery;
+  let recoveryStarted;
+  const recovering = new Promise(resolve => { recoveryStarted = resolve; });
+  const env = harness({ initData: launch, entries: {
+    'rooster.v1.token': 'active-session', 'rooster.v1.authContext': 'tg:42', 'rooster.v1.pending': JSON.stringify(command),
+  }, fetch: (url, options) => {
+    sent.push({ url, key: options.headers['Idempotency-Key'], body: options.body });
+    if (url.endsWith('/config')) return Promise.resolve(reply(200, { dev_auth: false }));
+    if (url.endsWith('/state')) return Promise.resolve(reply(200, state));
+    if (url.endsWith('/claim/daily')) return new Promise(resolve => { finishRecovery = resolve; recoveryStarted(); });
+    throw new Error(`Unexpected guide request: ${url}`);
+  } });
+  const boot = env.client.boot();
+  await recovering;
+  // Render is stubbed in this transport harness; synchronize at the same point
+  // where the live render runs while recovery remains unresolved.
+  env.client.syncGuide();
+  assert.equal(env.guideMock.isOpen(), false);
+  assert.equal(env.guideCalls.at(-1).autoAllowed, false);
+  assert.equal(env.client.getPending().key, command.key);
+  finishRecovery(reply(200, { state, result: {} }));
+  await boot;
+  assert.equal(env.client.getPending(), null);
+  assert.equal(env.guideCalls.at(-1).available, true);
+  assert.equal(env.guideCalls.at(-1).autoAllowed, true);
+  assert.equal(env.guideMock.isOpen(), true);
+  assert.deepEqual(sent.map(item => item.url), ['/api/v1/config', '/api/v1/state', '/api/v1/claim/daily']);
+  assert.equal(sent[2].key, command.key);
+  assert.equal(sent[2].body, '{}');
+});
+
+test('manual guide actions preserve a pending command, selected stake and mode without transport', async () => {
+  const command = { path: '/gear/upgrade', body: { slot: 'sword' }, key: 'keep-command-during-guide', owner: 'dev:tester', attempts: 1 };
+  const sent = [];
+  const env = harness({ entries: {
+    'rooster.v1.pending': JSON.stringify(command), 'rooster.v1.stakeMinor': '2500', 'rooster.v1.arenaMode': 'online',
+  }, fetch: async (url) => { sent.push(url); throw new Error('Guide must be read-only'); } });
+  const state = playerState();
+  env.client.setState(state);
+  env.client.syncGuide();
+  assert.equal(env.guideMock.isOpen(), false);
+  const beforeState = JSON.stringify(state);
+  const beforePending = JSON.stringify(env.client.getPending());
+  const savedPending = env.session.get('rooster.v1.pending');
+  await env.client.handleAction('open-guide');
+  assert.equal(env.guideMock.isOpen(), true);
+  await env.client.handleAction('close-guide');
+  assert.equal(env.guideMock.isOpen(), false);
+  assert.equal(JSON.stringify(state), beforeState);
+  assert.equal(JSON.stringify(env.client.getPending()), beforePending);
+  assert.equal(env.session.get('rooster.v1.pending'), savedPending);
+  assert.equal(env.client.currentStake(), 2500);
+  assert.equal(env.session.get('rooster.v1.arenaMode'), 'online');
+  assert.deepEqual(sent, []);
+});
+
+test('an open guide blocks game actions while its content follows the current catalog and locale', async () => {
+  const sent = [];
+  const env = harness({ entries: { 'rooster.v1.stakeMinor': '2500' }, localEntries: { 'rooster.v1.guideSeen.v1': '1' }, fetch: async (url) => {
+    sent.push(url);
+    throw new Error('An informational guide cannot start a battle');
+  } });
+  const state = playerState();
+  state.economy.first_free_battle_available = false;
+  state.catalog.battle.tap_cap = 77;
+  state.catalog.battle.duration = 12;
+  env.client.setState(state);
+  env.client.syncGuide();
+  await env.client.handleAction('open-guide');
+  const before = JSON.stringify(state);
+  assert.match(env.guideMock.content(), /77 нажатий за 12 секунд/);
+  assert.match(env.guideMock.content(), /при поражении теряешь ставку/);
+  await env.client.handleAction('start-bot', { dataset: {} });
+  await env.client.handleAction('stake', { dataset: { stakeMinor: '10000' } });
+  await env.client.handleAction('arena-mode', { dataset: { mode: 'online' } });
+  env.client.changeLanguage('en');
+  assert.match(env.guideMock.content(), /77 taps in 12 seconds/);
+  assert.match(env.guideMock.content(), /Losing a paid battle costs your stake/);
+  assert.equal(env.guideMock.isOpen(), true);
+  assert.equal(env.client.currentStake(), 2500);
+  assert.equal(env.session.get('rooster.v1.arenaMode'), undefined);
+  assert.equal(JSON.stringify(state), before);
+  assert.equal(env.client.getPending(), null);
+  assert.deepEqual(sent, []);
+});
+
+test('guide availability follows queue, active battle and result completion without consuming deferred introduction', async () => {
+  const env = harness();
+  const state = playerState();
+  state.queue = { joined_at: 0, expires_at: 120, stake_minor: 1000 };
+  env.client.setState(state);
+  env.client.syncGuide();
+  assert.equal(env.guideCalls.at(-1).available, true);
+  assert.equal(env.guideCalls.at(-1).autoAllowed, false);
+  assert.equal(env.guideMock.isOpen(), false);
+  await env.client.handleAction('open-guide');
+  assert.equal(env.guideMock.isOpen(), true, 'Manual guidance remains available during matchmaking');
+
+  state.queue = null;
+  state.battle = { id: 'guide-battle', status: 'active' };
+  env.client.syncGuide();
+  assert.equal(env.guideCalls.at(-1).available, false);
+  assert.equal(env.guideMock.isOpen(), false);
+  assert.equal(env.local.has('rooster.v1.guideSeen.v1'), false);
+  await env.client.handleAction('open-guide');
+  assert.equal(env.guideMock.isOpen(), false);
+
+  state.battle = { id: 'guide-battle', status: 'finished', result: { won: true, payout_minor: 1800, net_minor: 800, xp: 25 } };
+  env.client.acceptState(state);
+  env.client.syncGuide();
+  assert.equal(env.guideCalls.at(-1).available, true);
+  assert.equal(env.guideCalls.at(-1).autoAllowed, false);
+  assert.equal(env.guideMock.isOpen(), false);
+  await env.client.handleAction('close-result');
+  assert.equal(env.guideCalls.at(-1).autoAllowed, true);
+  assert.equal(env.guideMock.isOpen(), true);
+});
+
 test('free, paid and matchmaking actions send immutable minor-unit stakes', async () => {
   const sent = [];
   const env = harness({ fetch: async (url, options) => {
@@ -175,12 +335,28 @@ test('free, paid and matchmaking actions send immutable minor-unit stakes', asyn
   ]);
 });
 
-test('arena discloses wagers and renders no old training, energy or second currency', () => {
+test('Training is the current bot label while the fight action and server mode stay unchanged', () => {
+  const env = harness();
+  const state = playerState();
+  state.economy.first_free_battle_available = false;
+  env.client.setState(state);
+  assert.match(env.client.renderArena(), /Тренировка/);
+  assert.match(env.client.renderArena(), /data-action="start-bot"/);
+  assert.match(env.client.renderArena(), /data-mode="bot"/);
+  env.client.changeLanguage('en');
+  assert.match(env.client.renderArena(), /Training/);
+  assert.doesNotMatch(env.client.renderArena(), /data-action="start-practice"/);
+});
+
+test('arena discloses wagers through mode help and renders no old training, energy or second currency', async () => {
   const env = harness();
   const state = playerState();
   state.economy.first_free_battle_available = false;
   env.client.setState(state);
   env.client.setConfig({ bot_username: '' });
+  const closed = env.client.renderArena();
+  assert.doesNotMatch(closed, /15–25|При поражении выплата 0/);
+  await env.client.handleAction('mode-help', { dataset: { mode: 'bot' } });
   const arena = env.client.renderArena();
   assert.match(arena, /Бой длится 10 секунд/);
   assert.match(arena, /data-action="start-bot"/);
@@ -188,6 +364,7 @@ test('arena discloses wagers and renders no old training, energy or second curre
   assert.match(arena, /data-action="arena-mode" data-mode="online"/);
   assert.match(arena, /15–25/);
   assert.match(arena, /При поражении выплата 0/);
+  assert.match(arena, /110% с 90 тапами/);
   state.queue = { joined_at: 0, expires_at: 120, stake_minor: 1000 };
   const queue = env.client.renderQueue();
   const battle = env.client.renderBattle({
@@ -208,6 +385,7 @@ test('Arena mode selection preserves the stake and changes only the chosen fight
   env.client.setState(state);
   await env.client.handleAction('stake', { dataset: { stakeMinor: '2500' } });
   await env.client.handleAction('arena-mode', { dataset: { mode: 'online' } });
+  await env.client.handleAction('mode-help', { dataset: { mode: 'online' } });
   const html = env.client.renderArena();
   assert.match(html, /data-action="queue-join"/);
   assert.doesNotMatch(html, /data-action="start-bot"/);
@@ -219,14 +397,377 @@ test('Arena mode selection preserves the stake and changes only the chosen fight
   assert.match(restored.client.renderArena(), /Найти бой · 25 <svg[^>]+data-icon="coin"/);
 });
 
+test('custom stake input updates exact minor units locally and debounces authoritative quotes', async () => {
+  const sent = [];
+  const env = harness({ entries: { 'rooster.v1.token': 'active-session' }, fetch: async (url, options) => {
+    sent.push({ url, method: options.method, body: options.body });
+    return reply(200, customQuote(12345));
+  } });
+  const state = playerState();
+  state.economy.first_free_battle_available = false;
+  env.client.setState(state);
+  await env.client.handleAction('stake-range', { value: '12344' });
+  env.client.ensureStakeQuote();
+  await env.client.handleAction('stake-range', { value: '12345' });
+  env.client.ensureStakeQuote();
+  assert.equal(env.client.currentStake(), 12345);
+  assert.equal(env.session.get('rooster.v1.stakeMinor'), '12345');
+  let html = env.client.renderArena();
+  const range = rangeTag(html);
+  assert.match(range, /type="range"/);
+  assert.match(range, /min="1000"/);
+  assert.match(range, /max="42000"/);
+  assert.match(range, /step="1"/);
+  assert.match(range, /value="12345"/);
+  assert.match(html, /id="arena-stake-value"[^>]*>123,45/);
+  assert.match(actionTag(html, 'start-bot'), / disabled/);
+  assert.equal(env.client.getPending(), null);
+  assert.deepEqual(sent, []);
+  assert.equal([...env.timeouts.values()].filter(item => item.delay === 150).length, 1);
+
+  await env.client.loadStakeQuote();
+  assert.deepEqual(sent, [{ url: '/api/v1/battle/quote?stake_minor=12345', method: 'GET', body: undefined }]);
+  await env.client.handleAction('mode-help', { dataset: { mode: 'bot' } });
+  html = env.client.renderArena();
+  assert.match(html, /170,01–240,02/);
+  assert.doesNotMatch(actionTag(html, 'start-bot'), / disabled/);
+  await env.client.handleAction('stake', { dataset: { stakeMinor: '2500' } });
+  assert.equal(env.client.currentStake(), 2500);
+  assert.match(rangeTag(env.client.renderArena()), /value="2500"/);
+  env.client.ensureStakeQuote();
+  assert.equal([...env.timeouts.values()].filter(item => item.delay === 150).length, 0);
+  assert.equal(sent.length, 1, 'Preset quotes already in state need no read request');
+});
+
+test('a late custom quote cannot replace a newer stake or a changed power snapshot', async () => {
+  const replies = [];
+  const env = harness({ entries: { 'rooster.v1.token': 'active-session' }, fetch: (url) => new Promise(resolve => replies.push({ url, resolve })) });
+  const state = playerState();
+  state.economy.first_free_battle_available = false;
+  env.client.setState(state);
+  env.client.selectStake(12345);
+  const first = env.client.loadStakeQuote();
+  env.client.selectStake(23456);
+  const second = env.client.loadStakeQuote();
+  assert.equal(replies.length, 2);
+  const latest = customQuote(23456);
+  latest.online.win_payout_minor = 43210;
+  replies[1].resolve(reply(200, latest));
+  await second;
+  replies[0].resolve(reply(200, customQuote(12345)));
+  await first;
+  assert.equal(env.client.currentStake(), 23456);
+  assert.equal(env.client.currentStakeQuotes().online.win_payout_minor, 43210);
+
+  env.client.selectStake(34567);
+  const oldPower = env.client.loadStakeQuote();
+  const stronger = structuredClone(state);
+  stronger.player.power = 120;
+  env.client.acceptState(stronger);
+  replies[2].resolve(reply(200, customQuote(34567, 100)));
+  await oldPower;
+  assert.equal(Boolean(env.client.currentStakeQuotes().bot), false);
+  assert.match(actionTag(env.client.renderArena(), 'start-bot'), / disabled/);
+  const freshPower = env.client.loadStakeQuote();
+  replies[3].resolve(reply(200, customQuote(34567, 120)));
+  await freshPower;
+  assert.equal(env.client.currentStakeQuotes().bot.max_payout_minor, 24002);
+});
+
+test('a failed custom quote can be retried without changing the stake or posting a command', async () => {
+  const sent = [];
+  const env = harness({ entries: { 'rooster.v1.token': 'active-session' }, fetch: async (url, options) => {
+    sent.push({ url, method: options.method });
+    return sent.length === 1 ? reply(503, {}) : reply(200, customQuote(12345));
+  } });
+  const state = playerState();
+  state.economy.first_free_battle_available = false;
+  env.client.setState(state);
+  env.client.selectStake(12345);
+  await env.client.loadStakeQuote();
+  let html = env.client.renderArena();
+  assert.match(html, /data-action="retry-stake-quote"/);
+  assert.match(actionTag(html, 'start-bot'), / disabled/);
+  await env.client.handleAction('start-bot', { dataset: {} });
+  assert.equal(sent.length, 1, 'A missing quote cannot initiate the paid command');
+  await env.client.handleAction('retry-stake-quote');
+  assert.equal(env.client.currentStake(), 12345);
+  assert.equal(env.client.getPending(), null);
+  assert.deepEqual(sent, Array.from({ length: 2 }, () => ({ url: '/api/v1/battle/quote?stake_minor=12345', method: 'GET' })));
+  html = env.client.renderArena();
+  assert.doesNotMatch(actionTag(html, 'start-bot'), / disabled/);
+});
+
+test('the full fractional balance is selectable and sent as an exact custom stake', async () => {
+  const state = playerState();
+  state.player.balance_minor = 2345;
+  state.economy.stake_limits.max_minor = 2345;
+  state.economy.first_free_battle_available = false;
+  const sent = [];
+  const env = harness({ entries: { 'rooster.v1.token': 'active-session' }, fetch: async (url, options) => {
+    sent.push({ url, method: options.method, body: options.body && JSON.parse(options.body) });
+    return reply(200, url.includes('/battle/quote?') ? customQuote(2345) : { state, result: {} });
+  } });
+  env.client.setState(state);
+  await env.client.handleAction('stake-range', { value: '2345' });
+  assert.match(rangeTag(env.client.renderArena()), /max="2345"/);
+  assert.equal(env.client.currentStake(), 2345);
+  await env.client.loadStakeQuote();
+  await env.client.handleAction('start-bot', { dataset: {} });
+  assert.deepEqual(sent, [
+    { url: '/api/v1/battle/quote?stake_minor=2345', method: 'GET', body: undefined },
+    { url: '/api/v1/battle/start', method: 'POST', body: { mode: 'bot', stake_minor: 2345, expected_power: 100 } },
+  ]);
+});
+
+test('stake limits disable unaffordable presets and clamp saved choices after a balance change', async () => {
+  const env = harness({ entries: { 'rooster.v1.stakeMinor': '35000' } });
+  const state = playerState();
+  state.economy.first_free_battle_available = false;
+  state.player.balance_minor = 7777;
+  state.economy.stake_limits.max_minor = 7777;
+  env.client.acceptState(state);
+  assert.equal(env.client.currentStake(), 7777);
+  assert.equal(env.session.get('rooster.v1.stakeMinor'), '7777');
+  let html = env.client.renderArena();
+  assert.match(html, /data-stake-minor="10000"[^>]* disabled/);
+  assert.doesNotMatch(html, /data-stake-minor="5000"[^>]* disabled/);
+  await env.client.handleAction('stake', { dataset: { stakeMinor: '10000' } });
+  assert.equal(env.client.currentStake(), 7777);
+  env.client.changeLanguage('en');
+  assert.equal(env.client.currentStake(), 7777);
+  assert.match(rangeTag(env.client.renderArena()), /value="7777"/);
+
+  for (const balance of [0, 999]) {
+    const poor = structuredClone(state);
+    poor.player.balance_minor = balance;
+    poor.economy.stake_limits.max_minor = balance;
+    env.client.acceptState(poor);
+    html = env.client.renderArena();
+    assert.match(rangeTag(html), /min="1000"/);
+    assert.match(rangeTag(html), /max="1000"/);
+    assert.match(rangeTag(html), / disabled/);
+    assert.match(actionTag(html, 'start-bot'), / disabled/);
+    for (const stake of [1000, 2500, 5000, 10000]) assert.match(html, new RegExp(`data-stake-minor="${stake}"[^>]* disabled`));
+    await env.client.handleAction('start-bot', { dataset: {} });
+    await env.client.handleAction('queue-join', { dataset: {} });
+    assert.equal(env.client.getPending(), null);
+  }
+});
+
+test('balance clamping and language changes preserve a lost custom-start UUID and body', async () => {
+  const state = playerState();
+  state.economy.first_free_battle_available = false;
+  const commands = [];
+  const env = harness({ entries: { 'rooster.v1.token': 'active-session' }, fetch: async (url, options) => {
+    if (url.includes('/battle/quote?')) return reply(200, customQuote(12345));
+    commands.push({ url, body: options.body, key: options.headers['Idempotency-Key'] });
+    if (commands.length === 1) throw new TypeError('Lost response after custom start');
+    return reply(200, { state, result: {} });
+  } });
+  env.client.setState(state);
+  env.client.selectStake(12345);
+  await env.client.loadStakeQuote();
+  await env.client.handleAction('start-bot', { dataset: {} });
+  const original = JSON.stringify(env.client.getPending());
+  const poorer = structuredClone(state);
+  poorer.player.balance_minor = 2345;
+  poorer.economy.stake_limits.max_minor = 2345;
+  env.client.acceptState(poorer);
+  assert.equal(env.client.currentStake(), 2345);
+  env.client.changeLanguage('en');
+  await env.client.handleAction('stake-range', { value: '1001' });
+  assert.equal(JSON.stringify(env.client.getPending()), original);
+  assert.equal(commands.length, 1);
+  await env.client.sendPending();
+  assert.deepEqual(commands[0], commands[1]);
+  assert.equal(JSON.parse(commands[1].body).stake_minor, 12345);
+});
+
+test('a pending presence heartbeat keeps stake selection enabled without rewriting its command', async () => {
+  const sent = [];
+  let finishPresence;
+  const state = playerState();
+  state.economy.first_free_battle_available = false;
+  const env = harness({ entries: { 'rooster.v1.token': 'active-session' }, fetch: (url, options) => {
+    sent.push({ url, method: options.method, body: options.body, key: options.headers['Idempotency-Key'] });
+    if (url.endsWith('/presence')) return new Promise(resolve => { finishPresence = resolve; });
+    return Promise.resolve(reply(200, customQuote(12345)));
+  } });
+  env.client.setState(state);
+  const presence = env.client.mutate('/presence', {}, { quiet: true });
+  const original = JSON.stringify(env.client.getPending());
+  const saved = env.session.get('rooster.v1.pending');
+  const presenceKey = env.client.getPending().key;
+  assert.match(presenceKey, /^[0-9a-f-]{36}$/);
+
+  await env.client.handleAction('stake-range', { value: '12345' });
+  const html = env.client.renderArena();
+  assert.equal(env.client.currentStake(), 12345);
+  assert.match(rangeTag(html), /value="12345"/);
+  assert.doesNotMatch(rangeTag(html), / disabled/);
+  assert.match(actionTag(html, 'start-bot'), / disabled/);
+  assert.equal(JSON.stringify(env.client.getPending()), original);
+  assert.equal(env.session.get('rooster.v1.pending'), saved);
+  env.client.ensureStakeQuote();
+  assert.equal([...env.timeouts.values()].filter(item => item.delay === 150).length, 0);
+  assert.equal(sent.length, 1, 'Selection must neither mutate nor fetch quotes during the heartbeat');
+
+  finishPresence(reply(200, { state, result: {} }));
+  await presence;
+  assert.equal(env.client.currentStake(), 12345);
+  assert.equal(env.client.getPending(), null);
+  // The minimal DOM harness stubs render; invoke its quote scheduling step.
+  env.client.ensureStakeQuote();
+  assert.equal([...env.timeouts.values()].filter(item => item.delay === 150).length, 1);
+  await env.client.loadStakeQuote();
+  assert.equal(env.client.currentStakeQuotes().online.win_payout_minor, 23003);
+  assert.doesNotMatch(actionTag(env.client.renderArena(), 'start-bot'), / disabled/);
+  assert.deepEqual(sent, [
+    { url: '/api/v1/presence', method: 'POST', body: '{}', key: presenceKey },
+    { url: '/api/v1/battle/quote?stake_minor=12345', method: 'GET', body: undefined, key: undefined },
+  ]);
+});
+
+test('mode help is local, preserves mode and stake, and closes by repeat, Escape or mode selection', async () => {
+  const sent = [];
+  const env = harness({ fetch: async (url) => { sent.push(url); throw new Error('Help must be local'); } });
+  const state = playerState();
+  state.economy.first_free_battle_available = false;
+  env.client.setState(state);
+  await env.client.handleAction('stake', { dataset: { stakeMinor: '2500' } });
+  const before = JSON.stringify(state);
+  assert.match(env.client.renderArena(), /id="arena-mode-help" hidden/);
+  await env.client.handleAction('mode-help', { dataset: { mode: 'online' } });
+  let html = env.client.renderArena();
+  assert.match(html, /data-focus="help-online"[^>]*aria-expanded="true"/);
+  assert.match(html, /aria-controls="arena-mode-help"/);
+  assert.match(html, /47,5 <svg[^>]+data-icon="coin"/);
+  assert.match(html, /без подбора по мощи или ставке/);
+  assert.match(html, /data-action="start-bot"/);
+  assert.doesNotMatch(html, /data-action="queue-join"/);
+  assert.equal(env.session.get('rooster.v1.stakeMinor'), '2500');
+  assert.equal(env.session.get('rooster.v1.arenaMode'), undefined);
+  assert.equal(JSON.stringify(state), before);
+  assert.equal(env.client.getPending(), null);
+  assert.deepEqual(sent, []);
+
+  await env.client.handleAction('mode-help', { dataset: { mode: 'online' } });
+  assert.match(env.client.renderArena(), /id="arena-mode-help" hidden/);
+  await env.client.handleAction('mode-help', { dataset: { mode: 'bot' } });
+  let prevented = false;
+  env.listeners.get('keydown')({ key: 'Escape', preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.match(env.client.renderArena(), /id="arena-mode-help" hidden/);
+  assert.equal(env.document.activeElement, env.document.querySelector('[data-focus="help-bot"]'));
+  await env.client.handleAction('mode-help', { dataset: { mode: 'online' } });
+  await env.client.handleAction('close-mode-help');
+  assert.match(env.client.renderArena(), /id="arena-mode-help" hidden/);
+  assert.equal(env.document.activeElement, env.document.querySelector('[data-focus="help-online"]'));
+  await env.client.handleAction('mode-help', { dataset: { mode: 'bot' } });
+  await env.client.handleAction('arena-mode', { dataset: { mode: 'online' } });
+  html = env.client.renderArena();
+  assert.match(html, /id="arena-mode-help" hidden/);
+  assert.match(html, /Найти бой · 25 <svg[^>]+data-icon="coin"/);
+  assert.deepEqual(sent, []);
+});
+
+test('open help follows authoritative quotes across polling, stake and language changes', async () => {
+  const state = playerState();
+  state.economy.first_free_battle_available = false;
+  const refreshed = structuredClone(state);
+  // Deliberately differ from the usual multiplier: the client must display the
+  // quoted integer rather than recompute a payout from catalog or opponent data.
+  refreshed.economy.online_quotes[1].win_payout_minor = 4721;
+  const sent = [];
+  const env = harness({ entries: { 'rooster.v1.token': 'active-session' }, fetch: async (url) => { sent.push(url); return reply(200, refreshed); } });
+  env.client.setState(state);
+  await env.client.handleAction('mode-help', { dataset: { mode: 'online' } });
+  await env.client.refreshState();
+  await env.client.handleAction('stake', { dataset: { stakeMinor: '2500' } });
+  let html = env.client.renderArena();
+  assert.match(html, /data-focus="help-online"[^>]*aria-expanded="true"/);
+  assert.match(html, /47,21 <svg[^>]+data-icon="coin"/);
+  assert.match(html, /−25 <svg[^>]+data-icon="coin"/);
+  env.client.changeLanguage('en');
+  html = env.client.renderArena();
+  assert.match(html, /data-focus="help-online"[^>]*aria-expanded="true"/);
+  assert.match(html, /47\.21 <svg[^>]+data-icon="coin"/);
+  assert.match(html, /regardless of power or stake/);
+  assert.match(html, /data-action="start-bot"/);
+  assert.deepEqual(sent, ['/api/v1/state']);
+  assert.equal(env.client.getPending(), null);
+});
+
+test('first-free online help is collapsed initially and uses server quotes without starting a match', async () => {
+  const env = harness();
+  env.client.setState(playerState());
+  const closed = env.client.renderArena();
+  assert.match(closed, /id="arena-mode-help" hidden/);
+  assert.doesNotMatch(closed, /class="arena-risk"/);
+  await env.client.handleAction('mode-help', { dataset: { mode: 'online' } });
+  const opened = env.client.renderArena();
+  assert.match(opened, /data-action="start-free"/);
+  assert.match(opened, /data-focus="help-online"[^>]*aria-expanded="true"/);
+  assert.match(opened, /19 <svg[^>]+data-icon="coin"/);
+  assert.equal(env.client.getPending(), null);
+});
+
+test('a missing online quote disables matchmaking instead of inventing a payout', async () => {
+  const env = harness();
+  const state = playerState();
+  state.economy.first_free_battle_available = false;
+  state.economy.online_quotes = [];
+  env.client.setState(state);
+  await env.client.handleAction('arena-mode', { dataset: { mode: 'online' } });
+  await env.client.handleAction('mode-help', { dataset: { mode: 'online' } });
+  const html = env.client.renderArena();
+  assert.match(html, /data-action="queue-join"[^>]* disabled/);
+  assert.match(html, /class="arena-quote-status ui-status" role="status">Рассчитываем выплату/);
+  assert.doesNotMatch(html, /19 <svg[^>]+data-icon="coin"/);
+});
+
+test('finished results stay in history and the notice without a persistent Arena or queue card', () => {
+  const env = harness();
+  const state = playerState();
+  state.economy.first_free_battle_available = false;
+  const result = { id: 'finished-history', mode: 'online', status: 'finished', opponent: { name: 'History opponent', is_bot: false }, wager: { stake_minor: 1000 }, result: { won: true, payout_minor: 1900, net_minor: 900, xp: 10 } };
+  state.battle = result;
+  state.history = [result];
+  env.client.acceptState(state);
+  let html = env.client.renderArena();
+  assert.doesNotMatch(html, /last-battle-card|Последний бой/);
+  assert.match(html, /history-list/);
+  assert.match(html, /History opponent/);
+  env.client.renderResultToast();
+  assert.equal(env.document.querySelector('#battle-result-toast').hidden, false);
+  env.client.closeResultToast();
+  assert.match(env.client.renderArena(), /History opponent/);
+
+  state.queue = { joined_at: 0, expires_at: 120, stake_minor: 1000 };
+  html = env.client.renderArena();
+  assert.match(html, /data-action="queue-leave"/);
+  assert.doesNotMatch(html, /last-battle-card|Последний бой/);
+  assert.match(env.client.renderHistory(), /History opponent/);
+  state.queue = null;
+  state.battle = null;
+  const restored = harness({ entries: Object.fromEntries(env.session) });
+  restored.client.acceptState(structuredClone(state));
+  html = restored.client.renderArena();
+  assert.doesNotMatch(html, /last-battle-card|Последний бой/);
+  assert.match(html, /History opponent/);
+  assert.equal(vm.runInContext('resultToast', restored.context), null);
+});
+
 test('first free battle is the primary action and no automatic upgrade is offered', () => {
   const env = harness();
   const state = playerState();
   env.client.setState(state);
   const html = env.client.renderArena();
-  assert.ok(html.indexOf('data-action="start-free"') < html.indexOf('class="hero"'));
+  const hero = html.search(/class="hero(?:\s|")/);
+  assert.ok(hero >= 0 && html.indexOf('data-action="start-free"') < hero);
   assert.match(html, /15 монет при любом исходе/);
-  assert.match(html, /80 нажатий/);
+  assert.match(html, /90 нажатий/);
   const result = env.client.renderResult({ mode: 'bot', opponent: { name: 'Бот', is_bot: true }, wager: { stake_minor: 0 }, result: { won: false, payout_minor: 1500, net_minor: 1500, xp: 5 } });
   assert.match(result, /Итог: \+15/);
   assert.doesNotMatch(result, /go-gear|upgrade|Усилить/);
@@ -308,6 +849,7 @@ test('preparation becomes a 10-second battle locally, with legacy 15-second timi
     assert.equal(element('#battle-seconds').textContent, '2');
     assert.equal(element('#battle-phase').textContent, 'ПРИГОТОВЬСЯ');
     assert.equal(element('[data-action="battle-tap"]').disabled, true);
+    assert.match(element('#battle-caption').textContent, /Ставка и соперник зафиксированы/);
 
     // No state request or rerender: the UI enables taps at the start boundary.
     env.client.setServerNow(102.05);
@@ -315,12 +857,14 @@ test('preparation becomes a 10-second battle locally, with legacy 15-second timi
     assert.equal(element('#battle-seconds').textContent, String(duration));
     assert.equal(element('#battle-phase').textContent, 'БОЙ ИДЁТ');
     assert.equal(element('[data-action="battle-tap"]').disabled, false);
+    assert.equal(element('#battle-caption').textContent, 'Принятые тапы повышают шанс победы.');
 
     env.client.setServerNow(battle.ends_at + 0.1);
     env.client.updateTimers();
     assert.equal(element('#battle-seconds').textContent, '0');
     assert.equal(element('#battle-phase').textContent, 'БОЙ ЗАВЕРШЁН');
     assert.equal(element('[data-action="battle-tap"]').disabled, true);
+    assert.equal(element('#battle-caption').textContent, 'Бой завершён. Ждём результат с сервера…');
   }
 });
 
@@ -464,8 +1008,17 @@ test('breed cards describe multipliers and accepted server odds appear during ba
   assert.match(html, /Current win chance/);
   assert.match(html, /55%/);
   assert.match(html, /up to 90/);
+  assert.match(html, /54 \/ 90/);
+  // The same live server values remain readable for PvP; explanatory help is
+  // no longer part of the compact battle layout.
   battle.opponent.is_bot = false;
-  assert.match(env.client.renderBattle(battle), /opponent’s taps can lower it/);
+  battle.opponent.taps = 12;
+  battle.current_win_probability = .425;
+  const pvp = env.client.renderBattle(battle);
+  assert.match(pvp, /42.5%/);
+  assert.match(pvp, /Player/);
+  assert.match(pvp, /Opponent: <strong>12<\/strong>/);
+  assert.doesNotMatch(pvp, /class="battle-help/);
 });
 
 test('result notice closes manually or at its original deadline, without replay on poll or reload', async () => {

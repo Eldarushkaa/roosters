@@ -1,0 +1,178 @@
+/* Arena composition only. Reusable visual primitives live in ../foundation.css. */
+.arena-preview{--ap-ink:var(--ui-ink);--ap-blue:var(--ui-bg);--ap-light:var(--ui-muted);--ap-bottom:calc(var(--app-safe-bottom,0px) + var(--app-content-safe-bottom,0px));margin:0;background:#082857;color:#fff;font:var(--ui-text-body)/1.3 var(--ui-font-body);-webkit-tap-highlight-color:transparent}
+.arena-preview *{box-sizing:border-box}
+.arena-preview [hidden]{display:none!important}
+.arena-preview :focus-visible{outline:3px solid var(--ui-focus);outline-offset:3px;z-index:8}
+.arena-preview .ap-shell{width:100%;max-width:430px;margin:auto;height:var(--app-height,100dvh);display:flex;flex-direction:column;background:var(--ui-bg);overflow:hidden;position:relative;box-shadow:0 0 0 2px #061b41}
+.arena-preview .ap-scroll{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;scrollbar-width:none;scroll-padding:12px}
+.arena-preview .ap-scroll::-webkit-scrollbar{display:none}
+.arena-preview .ap-icon{width:24px;height:24px;flex-shrink:0;vertical-align:middle}
+.arena-preview .ap-icon-coin{width:20px;height:20px}
+.arena-preview .ap-world{position:relative;background:#259bfa url('./assets/arena-background.webp') center top/cover no-repeat;padding-top:calc(var(--app-safe-top,0px) + var(--app-content-safe-top,0px))}
+.arena-preview .ap-header{position:relative;z-index:3;padding:8px 12px 0}
+.arena-preview .ap-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.arena-preview .ap-brand{display:flex;align-items:center;gap:6px;min-width:0}
+.arena-preview .ap-brand-mark{width:42px;height:47px;display:grid;place-items:center;background:linear-gradient(145deg,#fff88e 4%,#ffd324 12%,#ffb40b 75%,#f07902 77%);border:3px solid var(--ap-ink);border-radius:10px 7px 12px 7px;box-shadow:inset 3px 2px #fff084,0 3px #083167;transform:rotate(-7deg)}
+.arena-preview .ap-brand-mark .ap-icon{width:31px;height:31px}
+.arena-preview .ap-brand strong{display:block;font:1000 29px/.95 var(--ui-font-display);letter-spacing:-1.2px;paint-order:stroke fill;-webkit-text-stroke:4px var(--ap-ink);text-shadow:0 3px var(--ap-ink);transform:rotate(-3deg)}
+.arena-preview .ap-brand>div>span{display:block;font:1000 10px/1.4 var(--ui-font-display);letter-spacing:.2px;color:#ffc743;background:#08214b;padding:1px 4px;margin-top:3px;transform:rotate(-3deg)}
+.arena-preview .ap-language{flex-shrink:0}
+.arena-preview .ap-account{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-top:10px}
+.arena-preview .ap-player{min-width:0;max-width:52%;display:flex;align-items:center;gap:4px}
+.arena-preview .ap-player>strong{padding:4px 8px;background:linear-gradient(135deg,#1264c1,#053572);border:2px solid #041b38;border-radius:6px;box-shadow:inset 2px 2px #35a2f1,0 2px #031f52;transform:rotate(-3deg);font:1000 15px/1.2 var(--ui-font-display);overflow-wrap:anywhere}
+.arena-preview .ap-connection{display:flex;align-items:center;order:-1;flex-shrink:0;font-size:0;width:12px;height:18px;white-space:nowrap}
+.arena-preview .ap-connection>span{color:#c5e0ff}
+.arena-preview .ap-connection i,.arena-preview .ap-presence i{display:inline-block;width:10px;height:10px;background:#82ee25;border:1.5px solid #062044;border-radius:50%;box-shadow:inset 1px 1px #d6ffae;margin-right:4px;flex-shrink:0}
+.arena-preview .ap-wallet{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:3px;background:linear-gradient(#063778,#042456);border:2px solid var(--ap-ink);border-radius:16px 7px 7px 16px;box-shadow:inset 0 2px #2b8dd3,0 2px #123e79;padding:3px 6px 3px 2px;max-width:60%}
+.arena-preview .ap-wallet .ap-icon{width:29px;height:29px;margin:-4px 0 -4px -5px}
+.arena-preview .ap-wallet strong{font:1000 20px/1.2 var(--ui-font-display);overflow-wrap:anywhere;min-width:0}
+.arena-preview .ap-wallet>span{font-size:12px;color:#d1e8ff}
+.arena-preview .ap-fighter{height:146px;position:relative;isolation:isolate;margin-top:0}
+.arena-preview .ap-hero{position:absolute;z-index:2;width:174px;height:174px;object-fit:contain;left:1px;bottom:-13px;pointer-events:none}
+.arena-preview .ap-fighter-info{position:absolute;left:40%;right:34px;bottom:20px;transform:rotate(-2deg)}
+.arena-preview .ap-fighter-info h1{position:relative;z-index:1;margin:0 -5px -2px -9px;border:3px solid #1c1b28;border-radius:10px 14px 7px 4px;background:linear-gradient(170deg,transparent 47%,#e78b34 48%,transparent 51%),linear-gradient(#d98a33 0 9%,#a34b1d 10% 16%,#c9792a 17% 50%,#af5a22 51% 88%,#773413 89%);box-shadow:inset 0 3px #f9b452,0 4px #07224a;padding:6px 3px 8px 31px;text-align:center;font:1000 30px/1.1 var(--ui-font-display);paint-order:stroke fill;-webkit-text-stroke:4px #241910;color:#fff5dc;text-shadow:0 2px #241910}
+.arena-preview .ap-fighter-info h1:after{content:'';position:absolute;right:7px;top:12px;width:6px;height:6px;background:#783714;transform:rotate(45deg);box-shadow:1px 1px #ec9e4e}
+.arena-preview .ap-fighter-stats{padding:9px 7px 9px 26px;border:3px solid var(--ap-ink);border-radius:0 0 13px 8px;background:linear-gradient(145deg,#094087,#05285f);box-shadow:inset 0 -3px #1475c4,0 4px #06409a}
+.arena-preview .ap-fighter-stats p{margin:0 0 7px;display:flex;flex-wrap:wrap;justify-content:center;gap:1px 6px;font:900 14px/1.25 var(--ui-font-display)}
+.arena-preview .ap-fighter-stats p span{white-space:nowrap}
+.arena-preview .ap-xp{display:flex;flex-wrap:wrap;align-items:center;gap:4px;color:#d8edff;font-size:12px;font-weight:700;justify-content:center}
+.arena-preview .ap-xp-track{flex:1}
+.arena-preview .ap-main{position:relative;z-index:2;padding:0 12px 18px;background:linear-gradient(145deg,#007ff4 0%,transparent 24%),linear-gradient(25deg,transparent 65%,#006fec 65% 70%,transparent 70%),#075cdb;border-top:4px solid #60c9ff;box-shadow:0 -3px #12409b}
+.arena-preview .ap-section-title{padding:4px 4px 5px}
+.arena-preview .ap-modes{margin:3px 0 9px}
+.arena-preview .ap-mode{display:flex;align-items:center;justify-content:center;gap:4px;padding:7px 5px;min-height:54px;font-size:17px;line-height:1.05}
+.arena-preview .ap-mode>.ap-icon{width:30px;height:30px}
+.arena-preview .ap-mode-online .ap-mode-label{font-size:16px;white-space:nowrap;letter-spacing:-.4px}
+.arena-preview .ap-selection{position:absolute;top:3px;right:3px}
+.arena-preview .ap-selection .ap-icon{width:13px;height:13px}
+.arena-preview .ap-stake-heading{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:4px}
+.arena-preview .ap-stake-heading .ap-section-title{font-size:21px;white-space:nowrap}
+.arena-preview .ap-stake-heading>span{font-size:12px;line-height:1.15;color:#d1e7ff;text-align:right;max-width:116px;background:#06448f;border-radius:4px;padding:3px 5px}
+.arena-preview .ap-stakes{margin:3px 0 10px}
+.arena-preview .ap-stake{display:flex;justify-content:center;align-items:center;gap:3px;font-size:23px;line-height:1;padding:4px 1px;min-height:44px;white-space:nowrap}
+.arena-preview .ap-stake>span{paint-order:stroke fill;-webkit-text-stroke:3px var(--ap-ink);text-shadow:0 1px var(--ap-ink)}
+.arena-preview .ap-stake .ap-icon-check{width:15px;height:15px;color:#121a23}
+.arena-preview .ap-stake .ap-icon-coin{width:19px;height:19px}
+.arena-preview .ap-risk{padding:7px 9px}
+.arena-preview .ap-risk>div{display:flex;justify-content:space-between;align-items:center;gap:8px;font-weight:700;line-height:1.4}
+.arena-preview .ap-risk strong{white-space:nowrap;font-size:16px;display:flex;gap:3px;align-items:center}
+.arena-preview .ap-risk p{font-size:var(--ui-text-sm);line-height:1.3;color:var(--ui-muted);margin:4px 0 0}
+.arena-preview .ap-fight{display:flex;justify-content:center;align-items:center;gap:5px;width:calc(100% - 12px);margin:10px 6px 0;min-height:58px;border-width:3px;border-radius:18px;font-size:24px;line-height:1.1;padding:9px 5px;paint-order:stroke fill;-webkit-text-stroke:3.5px var(--ap-ink);text-shadow:0 2px var(--ap-ink)}
+.arena-preview .ap-fight>.ap-icon-coin{width:27px;height:27px}
+.arena-preview .ap-fight>.ap-icon-arrow{width:22px;height:22px;filter:drop-shadow(1px 2px #092448)}
+.arena-preview .ap-fight:before,.arena-preview .ap-fight:after{content:'';position:absolute;pointer-events:none;top:18px;width:9px;height:19px;border:2px solid #071d3a;background:#ffcf0b;box-shadow:inset 2px 2px #fff273}
+.arena-preview .ap-fight:before{left:-11px;transform:rotate(-18deg);border-radius:3px 0 0 3px}
+.arena-preview .ap-fight:after{right:-11px;transform:rotate(18deg);border-radius:0 3px 3px 0}
+.arena-preview .ap-fight:disabled:before,.arena-preview .ap-fight:disabled:after{background:#45658a;box-shadow:none}
+.arena-preview .ap-fight:disabled{cursor:not-allowed}
+.arena-preview .ap-demo-note{font-size:12px;text-align:center;color:#e0efff;margin:7px 0}
+.arena-preview .ap-result{padding:0 9px 9px;margin-top:4px;overflow:hidden}
+.arena-preview .ap-result-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:4px;margin:0 -7px 4px}
+.arena-preview .ap-result-heading h2{padding:5px 8px 8px 5px;font-size:22px;white-space:nowrap}
+.arena-preview .ap-outcome{transform:rotate(-4deg);margin:8px -3px 0 0}
+.arena-preview .ap-result-body{display:flex;gap:8px;align-items:center}
+.arena-preview .ap-bot-portrait{flex:0 0 53px;height:49px;display:grid;place-items:center;background:linear-gradient(135deg,#429efb,#073e93);border:2px solid #051b3d;border-radius:8px;box-shadow:inset 2px 2px #70caff}
+.arena-preview .ap-bot-portrait .ap-icon{height:45px;width:45px}
+.arena-preview .ap-result-copy{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 8px;min-width:0;flex:1}
+.arena-preview .ap-result-copy>strong{font:1000 17px/1.2 var(--ui-font-display);paint-order:stroke fill;-webkit-text-stroke:2px #071830}
+.arena-preview .ap-result-details{font-size:13px;line-height:1.4;color:#d4e5ff;margin:5px 0 0}
+.arena-preview .ap-empty{color:#d4e5ff;font-size:14px;margin:8px 2px}
+.arena-preview .ap-support{margin-top:13px;padding:10px}
+.arena-preview .ap-support>.ap-icon{width:29px;height:29px;align-self:center}
+.arena-preview .ap-support>div{flex:1;min-width:0}
+.arena-preview .ap-support p{margin:0 0 5px;color:#c1dbff;font-size:14px;line-height:1.35}
+.arena-preview .ap-support p:last-child{margin:0}
+.arena-preview .ap-support .ap-presence{color:#eef7ff;display:flex;align-items:center}
+.arena-preview .ap-rules{margin-top:12px;padding:0}
+.arena-preview .ap-rules summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;min-height:50px;padding:8px;font:1000 17px/1.2 var(--ui-font-display);paint-order:stroke fill;-webkit-text-stroke:2px #07234d}
+.arena-preview .ap-rules summary::-webkit-details-marker{display:none}
+.arena-preview .ap-rules summary>span:first-of-type{flex:1}
+.arena-preview .ap-rules>div{padding:0 12px 8px;font-size:14px;line-height:1.5;color:#e0edff;background:#073a88}
+.arena-preview .ap-rules p{padding-top:10px;margin:0}
+.arena-preview .ap-chevron{width:12px;height:12px;border-right:4px solid #daf3ff;border-bottom:4px solid #daf3ff;transform:rotate(45deg);margin:-5px 3px 0 0;filter:drop-shadow(1px 1px #082458)}
+.arena-preview .ap-rules[open] .ap-chevron{transform:rotate(225deg);margin-top:5px}
+.arena-preview .ap-history{margin:14px 0 2px;background:#053c86;border-radius:7px;padding:8px 9px}
+.arena-preview .ap-history-heading{display:flex;gap:7px;align-items:center}
+.arena-preview .ap-history h2{font-size:23px}
+.arena-preview .ap-history>p{margin:5px 0 8px;font-size:13px;color:#c7e4ff}
+.arena-preview .ap-history-row{border-top:1px solid #397cc2;display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:8px;font-size:14px}
+.arena-preview .ap-history-row small{display:block;font-size:12px;color:#c7e4ff;margin-top:2px}
+.arena-preview .ap-history-row>strong{white-space:nowrap;color:#ffd1db}
+.arena-preview .ap-nav{padding:4px max(6px,calc(var(--app-safe-right,0px) + var(--app-content-safe-right,0px))) calc(7px + var(--ap-bottom)) max(6px,calc(var(--app-safe-left,0px) + var(--app-content-safe-left,0px)));position:relative;z-index:5}
+.arena-preview .ap-status{margin:7px 0}
+.arena-preview .ap-retry{margin:6px 0 0;display:block;padding:6px 12px}
+.arena-preview .ap-toast{position:absolute;z-index:7;bottom:calc(90px + var(--ap-bottom));left:16px;right:16px;border:2px solid #88caff;border-radius:8px;background:#07316a;color:#fff;padding:12px;font-size:14px;text-align:center;box-shadow:0 4px #021934}
+@media(max-width:370px){
+ .arena-preview .ap-brand strong{font-size:27px}
+ .arena-preview .ap-fighter-info{left:39%;right:30px}
+ .arena-preview .ap-hero{width:174px;height:174px;left:-3px}
+ .arena-preview .ap-fighter-info h1{font-size:28px;padding-left:26px}
+ .arena-preview .ap-fighter-stats{padding-left:27px}
+ .arena-preview .ap-mode{font-size:17px;gap:3px}
+ .arena-preview .ap-mode>.ap-icon{width:29px;height:29px}
+ .arena-preview .ap-fight{font-size:22px}
+ .arena-preview .ap-result-heading h2{font-size:20px}
+ .arena-preview .ap-outcome{font-size:17px}
+}
+@media(max-width:335px){
+ .arena-preview .ap-header{padding-left:9px;padding-right:9px}
+ .arena-preview .ap-brand strong{font-size:24px}
+ .arena-preview .ap-brand-mark{width:34px;height:42px}
+ .arena-preview .ap-brand-mark .ap-icon{width:27px;height:27px}
+ .arena-preview .ap-brand>div>span{font-size:9px}
+ .arena-preview .ap-main{padding-left:9px;padding-right:9px}
+ .arena-preview .ap-wallet{max-width:53%}
+ .arena-preview .ap-wallet strong{font-size:18px}
+ .arena-preview .ap-wallet>span{display:none}
+ .arena-preview .ap-fighter-info{left:37%;right:22px}
+ .arena-preview .ap-hero{width:161px;height:161px;left:-4px;bottom:-5px}
+ .arena-preview .ap-fighter-info h1{font-size:26px}
+ .arena-preview .ap-fighter-stats{padding-left:29px}
+ .arena-preview .ap-xp-track{flex-basis:100%}
+ .arena-preview .ap-mode{font-size:16px;min-height:56px}
+ .arena-preview .ap-mode-online .ap-mode-label{white-space:normal;letter-spacing:0}
+ .arena-preview .ap-mode>.ap-icon{width:25px;height:25px}
+ .arena-preview .ap-stake-heading .ap-section-title{font-size:20px}
+ .arena-preview .ap-stake{font-size:21px;gap:2px}
+ .arena-preview .ap-stake .ap-icon-coin{width:17px;height:17px}
+ .arena-preview .ap-stake .ap-icon-check{width:12px;height:12px}
+ .arena-preview .ap-fight{font-size:20px;gap:4px}
+ .arena-preview .ap-fight>.ap-icon-coin{width:22px;height:22px}
+ .arena-preview .ap-result-heading h2{font-size:19px;padding-left:4px;padding-right:5px}
+ .arena-preview .ap-outcome{font-size:16px}
+}
+/* Reduce the scene and spacing, never scale the complete interface. */
+@media(max-height:680px){
+ .arena-preview .ap-header{padding-top:5px}
+ .arena-preview .ap-fighter{height:116px;margin-top:0}
+ .arena-preview .ap-hero{width:142px;height:142px;bottom:-20px;left:0}
+ .arena-preview .ap-fighter-info{bottom:13px}
+ .arena-preview .ap-fighter-info h1{font-size:27px;padding-top:4px;padding-bottom:5px}
+ .arena-preview .ap-fighter-stats{padding-top:6px;padding-bottom:6px}
+ .arena-preview .ap-fighter-stats p{margin-bottom:4px}
+ .arena-preview .ap-modes{margin-top:2px;margin-bottom:4px}
+ .arena-preview .ap-mode{min-height:52px;padding-top:5px;padding-bottom:5px}
+ .arena-preview .ap-stakes{margin-bottom:6px}
+ .arena-preview .ap-risk{padding:6px 8px}
+ .arena-preview .ap-fight{min-height:53px;margin-top:6px}
+ .arena-preview .ap-nav{--ui-nav-tile-height:62px;--ui-nav-icon-size:28px}
+}
+@media(max-height:580px){
+ .arena-preview .ap-fighter{height:116px;margin-top:0}
+ .arena-preview .ap-hero{width:142px;height:142px;left:3px;bottom:-20px}
+ .arena-preview .ap-fighter-info{left:38%;bottom:8px}
+ .arena-preview .ap-fighter-info h1{font-size:25px}
+ .arena-preview .ap-fighter-stats p{font-size:14px}
+ .arena-preview .ap-section-title{font-size:21px;padding-top:3px;padding-bottom:3px}
+ .arena-preview .ap-stake-heading{margin-bottom:2px}
+ .arena-preview .ap-risk{padding:6px 8px}
+ .arena-preview .ap-modes{margin-bottom:7px}
+ .arena-preview .ap-mode{min-height:48px}
+ .arena-preview .ap-nav{padding-top:3px;padding-bottom:calc(5px + var(--ap-bottom))}
+ .arena-preview .ap-nav{--ui-nav-tile-height:58px}
+}
+@media(max-width:335px){
+ .arena-preview .ap-fighter-info{left:36%;right:10px}
+ .arena-preview .ap-xp-track{flex-basis:auto}
+ .arena-preview .ap-fighter-stats p{gap:1px 4px}
+}

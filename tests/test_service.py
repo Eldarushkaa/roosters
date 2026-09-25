@@ -1,16 +1,17 @@
-"""V3 integration: temporary databases, deterministic time, actual transactions.
+"""Game integration: temporary databases, deterministic time, actual transactions.
 
 Retries, concurrent tabs, partial failures and historical settlement are tested
 without a live wallet, Telegram account, network request or wall-clock sleep.
 """
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 import hashlib
 from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
 
-from roosters import rules, rules_v1, rules_v2, wallet
+from roosters import rules, rules_v1, rules_v2, rules_v4, rules_v5, wallet
 from roosters.errors import GameError
 from roosters.service import GameService, encode
 from roosters.storage import Database
@@ -141,7 +142,7 @@ def test_quote_draw_and_debit_survive_lost_response_and_restart(arena):
     assert first["state"]["player"]["balance_minor"] == 39500
     assert battle["starts_at"]-battle["created_at"] == 2
     assert battle["ends_at"]-battle["starts_at"] == 10
-    assert battle["tap_cap"] == 90 and battle["rules_version"] == "v4"
+    assert battle["tap_cap"] == 90 and battle["rules_version"] == "v6"
     assert battle["wager"]["win_payout_minor"] == rules.bot_payout(2500, 100, battle["opponent"]["power"])
     recovered = arena.cmd("battle/start", body, key=key, service=arena.restart(.99))
     assert recovered["state"]["battle"] == battle
@@ -293,14 +294,122 @@ def test_online_equal_stakes_exact_bank_and_real_win_ranking(arena):
     assert arena.service.leaderboard("tg:a")["pvp_wins"][0]["id"] == "tg:a"
 
 
-def test_different_stakes_and_dev_accounts_never_match(arena):
+def test_dev_and_telegram_accounts_never_match(arena):
     arena.join(stake=1000)
-    arena.join("tg:b", 2500)
     arena.service.register("dev:1", "Dev", True)
-    arena.join("dev:1")
-    for pid in ("tg:a", "tg:b", "dev:1"):
+    arena.join("dev:1", 2500)
+    for pid in ("tg:a", "dev:1"):
         assert arena.state(pid)["battle"] is None
         assert arena.state(pid)["queue"] is not None
+
+
+@pytest.mark.parametrize("stake_a", rules.STAKES_MINOR)
+@pytest.mark.parametrize("stake_b", rules.STAKES_MINOR)
+@pytest.mark.parametrize("draw,winner", [(0.05, "tg:a"), (0.95, "tg:b")])
+def test_online_any_power_and_stakes_keep_personal_quotes_across_restart_and_replay(arena, stake_a, stake_b, draw, winner):
+    # The power gap is well outside the old 35% matchmaking range.
+    with arena.db.transaction() as db:
+        db.execute("UPDATE players SET breed_id='ember',xp=4500,gear=? WHERE id='tg:b'",
+                   ('{"helmet":10,"armor":10,"sword":10}',))
+    arena.service = arena.restart(draw)
+    before = {pid: arena.player(pid)["balance_minor"] for pid in ("tg:a", "tg:b")}
+    assert arena.join(stake=stake_a)["result"] == {"matched": False}
+    key = str(uuid4())
+    matched = arena.cmd("queue/join", {"stake_minor": stake_b}, "tg:b", key)
+    assert matched["result"]["matched"]
+    replay = arena.cmd("queue/join", {"stake_minor": stake_b}, "tg:b", key, service=arena.restart())
+    assert replay["result"] == matched["result"]
+    battle = arena.state()["battle"]
+    assert battle["you"]["power"] == 100 and battle["opponent"]["power"] == 731
+    assert battle["current_win_probability"] == float(rules.win_probability(100, 731, 0, 0))
+    for pid, stake in (("tg:a", stake_a), ("tg:b", stake_b)):
+        restored = arena.restart().state(pid)
+        assert restored["queue"] is None
+        assert restored["player"]["balance_minor"] == before[pid] - stake
+        assert restored["battle"]["wager"] == {"stake_minor": stake, "win_payout_minor": 19 * stake // 10}
+    arena.finish(battle)
+    arena.restart().tick()
+    for pid, stake in (("tg:a", stake_a), ("tg:b", stake_b)):
+        state = arena.restart().state(pid)
+        result = state["battle"]["result"]
+        payout = 19 * stake // 10 if pid == winner else 0
+        assert result["won"] == (pid == winner)
+        assert result["payout_minor"] == payout and result["net_minor"] == payout - stake
+        assert state["player"]["balance_minor"] == before[pid] - stake + payout
+        assert state["history"][0]["wager"] == state["battle"]["wager"]
+        assert state["player"]["battles"] == 1
+    with arena.db.transaction() as db:
+        assert db.execute("SELECT COUNT(*) FROM coin_ledger WHERE reason='battle_entry'").fetchone()[0] == 2
+        assert db.execute("SELECT COUNT(*) FROM coin_ledger WHERE reason='battle_reward'").fetchone()[0] == 2
+
+
+def test_online_quotes_are_server_generated_for_every_allowed_stake(arena):
+    assert arena.state()["economy"]["online_quotes"] == [
+        {"stake_minor": stake, "win_payout_minor": 19 * stake // 10} for stake in rules.STAKES_MINOR]
+
+
+@pytest.mark.parametrize("queued_stake,balance,joining_stake,matched", [
+    (1000, 1000, 10000, True), (10000, 2500, 1000, False),
+])
+def test_candidate_affordability_uses_candidate_own_stake(arena, queued_stake, balance, joining_stake, matched):
+    arena.join(stake=queued_stake)
+    with arena.db.transaction() as db:
+        wallet.change(db, "tg:a", balance - 42000, "test_spend", "affordability", arena.now)
+    assert arena.join("tg:b", joining_stake)["result"]["matched"] is matched
+    if not matched:
+        assert arena.player()["balance_minor"] == balance
+        assert arena.player("tg:b")["balance_minor"] == 42000
+
+
+def test_online_second_debit_failure_rolls_back_both_stakes_and_preserves_queue(arena):
+    arena.join(stake=1000)
+    original = wallet.change
+
+    def fail_second(db, pid, delta, reason, reference, now):
+        if pid == "tg:b" and reason == "battle_entry":
+            raise RuntimeError("simulated second wallet failure")
+        return original(db, pid, delta, reason, reference, now)
+
+    key = str(uuid4())
+    with patch("roosters.service.wallet.change", side_effect=fail_second), pytest.raises(RuntimeError):
+        arena.cmd("queue/join", {"stake_minor": 10000}, "tg:b", key)
+    assert arena.state()["queue"]["stake_minor"] == 1000
+    for pid in ("tg:a", "tg:b"):
+        assert arena.player(pid)["balance_minor"] == 42000
+        assert arena.state(pid)["battle"] is None
+    assert arena.cmd("queue/join", {"stake_minor": 10000}, "tg:b", key)["result"]["matched"]
+
+
+def test_online_selects_oldest_eligible_player_without_stake_or_power_preference(arena):
+    arena.join(stake=1000)
+    arena.now += 46  # Still queued, but temporarily absent from live presence.
+    arena.cmd("presence", pid="tg:b")
+    assert not arena.join("tg:b", 10000)["result"]["matched"]
+    arena.cmd("presence")
+    arena.service.register("tg:c", "Third", False)
+    with arena.db.transaction() as db:
+        db.execute("UPDATE players SET breed_id='ember' WHERE id='tg:c'")
+    matched = arena.join("tg:c", 10000)
+    assert matched["result"]["matched"]
+    assert matched["state"]["battle"]["opponent"]["name"] == "tg:a"
+    assert arena.state("tg:b")["queue"] is not None
+
+
+def test_competing_joins_can_claim_a_waiting_player_only_once(arena):
+    arena.service.register("tg:c", "Third", False)
+    arena.join(stake=1000)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(arena.cmd, "queue/join", {"stake_minor": stake}, pid,
+                               service=arena.restart()) for pid, stake in (("tg:b", 2500), ("tg:c", 10000))]
+        results = [future.result() for future in futures]
+    assert sorted(result["result"]["matched"] for result in results) == [False, True]
+    for pid, stake in (("tg:a", 1000), ("tg:b", 2500), ("tg:c", 10000)):
+        state = arena.state(pid)
+        assert (state["battle"] is None) != (state["queue"] is None)
+        assert state["player"]["balance_minor"] == 42000 - (stake if state["battle"] else 0)
+    with arena.db.transaction() as db:
+        assert db.execute("SELECT COUNT(*) FROM battles").fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM coin_ledger WHERE reason='battle_entry'").fetchone()[0] == 2
 
 
 def test_bot_and_dev_wins_do_not_increment_real_pvp_score(arena):
@@ -330,7 +439,7 @@ def test_presence_excludes_dev_and_expires(arena):
 
 
 def test_economic_forgery_and_stale_power_atomic(arena):
-    invalid = [("battle/start", dict(arena.payload(), stake_minor=v)) for v in (True, -1, 1000.0, 1001, 10000000)]
+    invalid = [("battle/start", dict(arena.payload(), stake_minor=v)) for v in (True, -1, 1000.0, 999, 10000000)]
     invalid += [("battle/start", dict(arena.payload(), expected_power=101)), ("battle/start", dict(arena.payload(), won=True)),
                 ("gear/upgrade", {"slot": ["sword"]}), ("gear/upgrade", {"slot": "sword", "cost_minor": 0}),
                 ("breed/buy", {"breed_id": ["ember"]}), ("queue/join", {"stake_minor": 0}), ("presence", {"online": 1000})]
@@ -441,7 +550,7 @@ def test_live_pvp_odds_are_complementary_and_respond_to_opponent(arena):
     assert arena.state()['battle']['current_win_probability'] == .5
 
 
-def test_v3_battle_survives_v4_with_original_power_taps_prize_and_odds(arena):
+def test_v3_battle_survives_current_release_with_original_power_taps_prize_and_odds(arena):
     from roosters import rules_v3
     with patch('roosters.service.rules', rules_v3):
         arena.cmd('gear/upgrade', {'slot': 'helmet'})
@@ -458,7 +567,154 @@ def test_v3_battle_survives_v4_with_original_power_taps_prize_and_odds(arena):
     expected = float(rules_v3.bot_probability(battle['you']['power'], battle['opponent']['power'], 80))
     assert finished['win_probability'] == expected
     assert finished['result']['payout_minor'] == battle['wager']['win_payout_minor']
-    assert arena.start()['rules_version'] == 'v4'
+    assert arena.start()['rules_version'] == 'v6'
+
+
+@pytest.mark.parametrize("stake", [1000, 1001, 12345, 42000])
+def test_custom_bot_stakes_include_full_balance_and_replay_exactly(arena, stake):
+    quote = arena.service.battle_quote("tg:a", stake)
+    key = str(uuid4())
+    body = {"mode": "bot", "stake_minor": stake, "expected_power": quote["power"]}
+    first = arena.cmd("battle/start", body, key=key)
+    replay = arena.cmd("battle/start", body, key=key, service=arena.restart())
+    assert replay["result"] == first["result"]
+    assert replay["state"]["player"]["balance_minor"] == 42000 - stake
+    battle = first["state"]["battle"]
+    prize = stake * 9 * (100 + battle["opponent"]["power"]) // 1000
+    assert battle["wager"] == {"stake_minor": stake, "win_payout_minor": prize}
+    assert quote["bot"]["min_payout_minor"] <= prize <= quote["bot"]["max_payout_minor"]
+    finished = arena.finish(battle)
+    assert finished["result"]["payout_minor"] == prize
+    assert arena.player()["balance_minor"] == 42000 - stake + prize
+
+
+def test_online_custom_cent_stakes_keep_personal_rounded_prizes(arena):
+    arena.join(stake=1001)
+    arena.join("tg:b", 12345)
+    a, b = arena.state()["battle"], arena.state("tg:b")["battle"]
+    assert a["wager"] == {"stake_minor": 1001, "win_payout_minor": 1901}
+    assert b["wager"] == {"stake_minor": 12345, "win_payout_minor": 23455}
+    assert arena.finish(a)["result"]["net_minor"] == 900
+    assert arena.state("tg:b")["battle"]["result"]["net_minor"] == -12345
+
+
+def test_stake_limits_follow_balance_including_less_than_minimum(arena):
+    assert arena.state()["economy"]["stake_limits"] == {"min_minor": 1000, "max_minor": 42000, "step_minor": 1}
+    with arena.db.transaction() as db:
+        wallet.change(db, "tg:a", 999 - 42000, "test_spend", "below_minimum", arena.now)
+    assert arena.state()["economy"]["stake_limits"] == {"min_minor": 1000, "max_minor": 999, "step_minor": 1}
+    with pytest.raises(GameError, match="Недостаточно"):
+        arena.service.battle_quote("tg:a", 1000)
+    assert arena.start(0)["wager"]["stake_minor"] == 0
+
+
+def test_technical_stake_limit_keeps_quotes_exact_and_respects_sqlite_headroom(arena):
+    with arena.db.transaction() as db:
+        wallet.change(db, "tg:a", rules.MAX_STAKE_MINOR + 1000 - 42000, "test_grant", "large", arena.now)
+    assert arena.state()["economy"]["stake_limits"]["max_minor"] == rules.MAX_STAKE_MINOR
+    quote = arena.service.battle_quote("tg:a", rules.MAX_STAKE_MINOR)
+    assert quote["bot"]["max_payout_minor"] <= 2**53 - 1
+    for op in (lambda: arena.start(rules.MAX_STAKE_MINOR + 1),
+               lambda: arena.service.battle_quote("tg:a", rules.MAX_STAKE_MINOR + 1)):
+        with pytest.raises(GameError) as error:
+            op()
+        assert error.value.code == "invalid_stake"
+    with arena.db.transaction() as db:
+        current = db.execute("SELECT balance_minor FROM players WHERE id='tg:a'").fetchone()[0]
+        wallet.change(db, "tg:a", wallet.MAX_MINOR_UNITS - 1160 - current, "test_grant", "headroom", arena.now)
+    assert arena.state()["economy"]["stake_limits"]["max_minor"] == 1000
+    with pytest.raises(GameError) as error:
+        arena.service.battle_quote("tg:a", 1001)
+    assert error.value.code == "invalid_stake"
+
+
+def test_quote_does_not_run_maintenance_change_free_eligibility_or_write_any_table(arena):
+    def snapshot():
+        with closing(arena.db.connect()) as db:
+            return list(db.iterdump())
+
+    before = snapshot()
+    quote = arena.service.battle_quote("tg:a", 1001)
+    assert snapshot() == before
+    assert quote == {"rules_version": "v6", "power": 100, "stake_minor": 1001,
+                     "bot": {"min_payout_minor": 1531, "max_payout_minor": 2162},
+                     "online": {"win_payout_minor": 1901}}
+    battle = arena.start()
+    arena.now = battle["ends_at"] + 1
+    before = snapshot()
+    arena.service.battle_quote("tg:a", 1001)
+    assert snapshot() == before  # Due battle remains un-settled by quotation.
+
+
+@pytest.mark.parametrize("stake,code", [(999, "invalid_stake"), (0, "invalid_stake"),
+                                       (True, "invalid_stake"), (1001.0, "invalid_stake"),
+                                       ("1001", "invalid_stake"), (42001, "insufficient_funds")])
+def test_quote_rejects_invalid_or_unfunded_custom_stakes_without_mutation(arena, stake, code):
+    before = arena.player()
+    with pytest.raises(GameError) as error:
+        arena.service.battle_quote("tg:a", stake)
+    assert error.value.code == code
+    assert arena.player() == before
+
+
+def test_custom_quote_does_not_reserve_funds_or_authorize_stale_power(arena):
+    quote = arena.service.battle_quote("tg:a", 42000)
+    arena.cmd("gear/upgrade", {"slot": "sword"})
+    with pytest.raises(GameError) as stale:
+        arena.cmd("battle/start", {"mode": "bot", "stake_minor": 42000, "expected_power": quote["power"]})
+    assert stale.value.code == "power_changed"
+    for op in (lambda: arena.start(42000), lambda: arena.join(stake=42000)):
+        with pytest.raises(GameError) as funds:
+            op()
+        assert funds.value.code == "insufficient_funds"
+
+
+def test_concurrent_custom_all_in_requests_charge_only_one_stake(arena):
+    body = arena.payload(42000)
+
+    def submit():
+        try:
+            return arena.cmd("battle/start", body, service=arena.restart())
+        except GameError as error:
+            return error
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = [future.result() for future in [pool.submit(submit), pool.submit(submit)]]
+    assert sum(isinstance(result, dict) for result in results) == 1
+    assert sum(isinstance(result, GameError) for result in results) == 1
+    assert arena.player()["balance_minor"] == 0
+    with arena.db.transaction() as db:
+        assert db.execute("SELECT COUNT(*) FROM coin_ledger WHERE reason='battle_entry'").fetchone()[0] == 1
+
+
+def test_v5_battle_survives_custom_stake_release_with_saved_rules(arena):
+    with patch("roosters.service.rules", rules_v5):
+        battle = arena.start()
+    arena.service = arena.restart()
+    assert arena.state()["battle"] == battle
+    arena.now = battle["starts_at"]
+    assert arena.tap(battle, 90) == 90
+    finished = arena.finish(battle)
+    assert finished["rules_version"] == "v5"
+    assert finished["wager"] == battle["wager"]
+    assert finished["win_probability"] == float(rules_v5.bot_probability(100, battle["opponent"]["power"], 90))
+
+
+def test_v4_bot_battle_keeps_original_odds_prize_and_cap_after_restart(arena):
+    with patch('roosters.service.rules', rules_v4):
+        battle = arena.start()
+    assert battle['rules_version'] == 'v4'
+    arena.service = arena.restart()
+    assert arena.state()['battle']['wager'] == battle['wager']
+    arena.now = battle['starts_at']
+    assert arena.tap(battle, 90) == 90
+    assert arena.tap(battle, 1) == 0
+    old_probability = float(rules_v4.bot_probability(battle['you']['power'], battle['opponent']['power'], 90))
+    assert arena.state()['battle']['current_win_probability'] == old_probability
+    finished = arena.finish(battle)
+    assert finished['win_probability'] == old_probability
+    assert finished['result']['payout_minor'] == battle['wager']['win_payout_minor']
+    assert old_probability < float(rules.bot_probability(battle['you']['power'], battle['opponent']['power'], 90))
 
 
 def test_v4_migration_rebuilds_power_cache_without_changing_wallet_or_battle(arena):

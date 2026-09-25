@@ -56,6 +56,15 @@ export function createAppEnvironment(win = window, doc = document) {
     root.dataset.theme = state.theme;
     root.style.colorScheme = state.theme;
     const tokens = themeTokens(state.theme, telegram?.themeParams);
+    // The approved game palette applies in both native themes. Resolve it from
+    // the shared CSS source; retain the readable native fallback if CSS is absent.
+    // Event ownership, SDK version gates and viewport accounting stay unchanged.
+    const shared = win.getComputedStyle(root);
+    for (const [key, role] of Object.entries({ bg: 'bg', panel: 'panel', 'panel-light': 'panel-raised',
+      text: 'text', muted: 'muted-on-blue', line: 'ink', accent: 'gold', amber: 'gold', lime: 'success', red: 'error' })) {
+      const value = hex(shared.getPropertyValue(`--ui-${role}`).trim());
+      if (value) tokens[key] = value;
+    }
     for (const [key, value] of Object.entries(tokens)) set(`--${key}`, value);
     doc.querySelector('meta[name="theme-color"]')?.setAttribute('content', tokens.bg);
     call('setHeaderColor', '6.1', supports('6.9') ? tokens.bg : 'bg_color');
@@ -75,7 +84,8 @@ export function createAppEnvironment(win = window, doc = document) {
       }
     }
     root.dataset.compactBattle = String(compactHeight - insets <= 650);
-    root.dataset.compactArena = String(compactHeight - insets <= 600);
+    // Framed shared controls need the dense setup through medium-height phones.
+    root.dataset.compactArena = String(compactHeight - insets <= 700);
   }
   function syncInsets() {
     for (const edge of ['top', 'right', 'bottom', 'left']) {

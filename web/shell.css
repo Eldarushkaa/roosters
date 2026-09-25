@@ -1,0 +1,59 @@
+/* Shared shell composition. Materials, colors and control states live in foundation.css. */
+.ui-shell .app-header { gap: var(--ui-space-2); }
+.ui-shell .brand { min-height: var(--ui-touch); gap: var(--ui-space-2); letter-spacing: 0; font-family: var(--ui-font-display); font-weight: var(--ui-weight-display); }
+.ui-shell .brand > span:last-child { color: var(--ui-text); paint-order: stroke fill; -webkit-text-stroke: var(--ui-outline-text) var(--ui-ink); text-shadow: 0 2px var(--ui-ink); }
+.ui-shell .brand-symbol { border: var(--ui-border); color: var(--ui-ink); background: var(--ui-face-gold); box-shadow: var(--ui-bevel-gold); }
+.ui-shell .brand-sub { font: 700 var(--ui-text-xs)/1.2 var(--ui-font-body); letter-spacing: 0; color: var(--ui-muted); -webkit-text-stroke: 0; text-shadow: none; }
+.ui-shell .header-controls { gap: var(--ui-space-2); }
+.ui-shell .header-guide { width: var(--ui-touch); height: var(--ui-touch); padding: 0; flex-shrink: 0; }
+.ui-shell .connection-pill { margin: 0; color: var(--ui-text); font-size: var(--ui-text-sm); }
+.ui-shell .status-dot { flex-shrink: 0; width: 8px; height: 8px; box-shadow: none; }
+.ui-shell .connection-pill.offline { color: var(--ui-error); }
+.ui-shell .dev-banner { margin-bottom: var(--ui-space-3); font-size: var(--ui-text-xs); }
+.ui-shell .dev-banner span { font-size: inherit; }
+.ui-shell .player-bar { gap: var(--ui-space-2); margin-bottom: var(--ui-space-3); }
+.ui-shell .avatar { flex-shrink: 0; justify-content: center; margin: 0; font-size: var(--ui-text-body); }
+.ui-shell .wallet { padding: var(--ui-space-1) var(--ui-space-2); }
+.ui-shell .wallet-item { min-width: 0; }
+.ui-shell .wallet-item > div { min-width: 0; }
+.ui-shell .wallet-item strong { overflow-wrap: anywhere; font-family: var(--ui-font-display); font-size: var(--ui-text-lg); font-weight: var(--ui-weight-display); }
+.ui-shell .currency-icon .ui-icon { width: 25px; height: 25px; }
+.ui-shell .player-identity .eyebrow { font-size: var(--ui-text-xs); letter-spacing: 0; }
+.ui-shell .app-footer { font-size: var(--ui-text-xs); line-height: var(--ui-leading-body); }
+.ui-game-screen :is(a, summary, button):focus-visible { outline-color: var(--ui-focus); }
+
+.loading-view.ui-panel, .error-view.ui-panel {
+  margin: var(--ui-space-6) auto;
+  padding: var(--ui-space-6) var(--ui-space-4);
+  max-width: 490px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.loading-view p, .error-view p { margin: var(--ui-space-4) 0 0; line-height: var(--ui-leading-body); }
+.loading-view .loading-rooster, .error-view .loading-rooster { display: block; margin-bottom: var(--ui-space-4); }
+.loading-rooster .ui-icon { width: 48px; height: 48px; }
+.loading-view .loading-bar { width: 120px; margin: var(--ui-space-6) auto 0; }
+.loading-bar > span { width: 40%; animation: loading 1.5s ease-in-out infinite; }
+.error-view .ui-button { margin-top: var(--ui-space-6); }
+.notice.ui-status, .context-banner.ui-status { display: flex; align-items: center; gap: var(--ui-space-3); }
+.notice.ui-status > span, .context-banner.ui-status > span { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.notice.ui-status { padding: var(--ui-space-3); }
+.notice .ui-button { flex-shrink: 0; font-size: var(--ui-text-sm); }
+.notice .dismiss { padding: 0; width: var(--ui-touch); height: var(--ui-touch); }
+.notice .dismiss .ui-icon { width: 20px; height: 20px; }
+.context-banner.ui-status { flex-wrap: wrap; margin-bottom: var(--ui-space-4); }
+.context-banner .ui-button { font-size: var(--ui-text-sm); }
+.ui-game-screen .noscript { background: var(--ui-bg); color: var(--ui-text); font: var(--ui-text-body)/var(--ui-leading-body) var(--ui-font-body); }
+
+@media (max-width: 600px) {
+  .ui-shell .brand { gap: var(--ui-space-1); font-size: 18px; }
+  .ui-shell .brand-symbol { width: 34px; height: 36px; }
+  .ui-shell .brand-symbol .ui-icon { width: 25px; height: 25px; }
+  .ui-shell .brand-sub { display: none; }
+}
+@media (max-width: 370px) {
+  .ui-shell:not(.battle-mode) .brand > span:last-child { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-bar > span { animation: none; }
+}

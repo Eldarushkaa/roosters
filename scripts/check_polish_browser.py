@@ -41,6 +41,7 @@ def exercise(browser, url, app, clock, artifacts):
                     content_type='application/javascript', body=BRIDGE.replace('SCHEME', json.dumps(scheme)) + HAPTICS))
                 context.add_init_script("localStorage.setItem('rooster.v1.language', %s)" % json.dumps(language))
                 context.add_init_script('const snapshotTime = Date.now(); Date.now = () => snapshotTime;')
+                context.add_init_script("localStorage.setItem('rooster.v1.guideSeen.v1', '1')")
                 page = context.new_page()
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 page.goto(url, wait_until='networkidle')
@@ -54,9 +55,11 @@ def exercise(browser, url, app, clock, artifacts):
                 # A real pointer press changes appearance immediately, without changing layout.
                 pressed = page.locator('[data-language=' + language + ']')
                 before = pressed.evaluate('n => [n.offsetLeft,n.offsetTop,n.offsetWidth,n.offsetHeight]')
+                face_before = pressed.evaluate('n => getComputedStyle(n).boxShadow')
                 pressed.hover()
                 page.mouse.down()
-                assert pressed.evaluate('n => getComputedStyle(n).transform') != 'none'
+                # Compact segmented controls depress their inset face without moving.
+                assert pressed.evaluate('n => getComputedStyle(n).boxShadow') != face_before
                 assert pressed.evaluate('n => [n.offsetLeft,n.offsetTop,n.offsetWidth,n.offsetHeight]') == before
                 page.mouse.up()
                 # Keyboard users retain a visible outline; native tab state has a check and label.
@@ -75,6 +78,7 @@ def exercise(browser, url, app, clock, artifacts):
                     expect(page.locator('.battle-tap')).to_be_enabled()
                     page.wait_for_function("hapticCalls.at(-1)?.[0] === 'impact'")
                     count = page.evaluate('hapticCalls.length')
+                    page.wait_for_function("() => document.querySelector('.battle-tap').getAnimations().every(animation => animation.playState !== 'running')")
                     assert_controls(page, label + '-active', essential=False, top_inset=40, bottom_inset=30)
                     # Rapid taps retain bounded visual feedback and never vibrate per tap.
                     with page.expect_response(lambda r: r.url.endswith('/battle/tap')):
@@ -105,7 +109,8 @@ def exercise(browser, url, app, clock, artifacts):
                 assert result['player']['balance_minor'] == before['player']['balance_minor'] - before['economy']['upgrade_costs_minor']['sword']
                 shot('upgrade')
                 command(page, '[data-breed=copper]', 'breed/buy')
-                expect(page.locator('[data-breed-id=copper]')).to_have_class('gear-breed is-equipped')
+                expect(page.locator('[data-breed-id=copper]')).to_have_attribute('data-state', 'complete')
+                assert page.locator('[data-breed-id=copper]').evaluate("n => n.classList.contains('is-equipped') && n.classList.contains('ui-panel')")
                 page.wait_for_function('hapticCalls.length === ' + str(count + 2))
                 page.locator('[data-breed-id=copper]').scroll_into_view_if_needed()
                 shot('equipped')

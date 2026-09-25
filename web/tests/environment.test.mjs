@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createAppEnvironment, themeTokens, contrast } from '../environment.mjs';
 
-function harness(bridge, dark = false) {
-  const css = new Map();
+function harness(bridge, dark = false, shared = {}) {
+  const css = new Map(Object.entries(shared));
   const events = new Map();
   const native = [];
   const documentEvents = new Map();
@@ -50,6 +50,29 @@ test('theme palette keeps readable semantic text for incomplete and conflicting 
       assert.notEqual(palette.accent, '#ff00ff');
     }
   }
+});
+
+test('native chrome follows shared game CSS across themes while preserving SDK guards', () => {
+  const h = harness({ platform: 'ios', colorScheme: 'dark',
+    themeParams: { bg_color: '#000000' } }, false, {
+    '--ui-bg': '#075cdb', '--ui-text': '#ffffff', '--ui-muted-on-blue': '#d8eaff',
+  });
+  for (const scheme of ['light', 'dark']) {
+    h.env.telegram.colorScheme = scheme;
+    h.events.get('themeChanged')();
+    assert.equal(h.root.dataset.theme, scheme);
+    assert.equal(h.css.get('--bg'), '#075cdb');
+    assert.equal(h.css.get('--text'), '#ffffff');
+    assert.equal(h.css.get('--muted'), '#d8eaff');
+    for (const method of ['setHeaderColor', 'setBackgroundColor', 'setBottomBarColor']) {
+      assert.equal(h.native.filter(([name]) => name === method).at(-1)[1], '#075cdb');
+    }
+  }
+  // A changed shared token is read on resync; no second JS palette can drift.
+  h.css.set('--ui-bg', '#0845b4');
+  h.events.get('themeChanged')();
+  assert.equal(h.css.get('--bg'), '#0845b4');
+  assert.equal(h.native.filter(([name]) => name === 'setBackgroundColor').at(-1)[1], '#0845b4');
 });
 
 test('unstable viewport and browser resize do not move Telegram controls or compact layout', () => {
@@ -118,10 +141,10 @@ test('unsupported native chrome failures cannot prevent ready or app initializat
 
 
 test('native insets activate existing short layouts without shrinking stable viewport twice', () => {
-  const bridge = { platform: 'ios', viewportStableHeight: 640, safeAreaInset: { top: 24, bottom: 20 }, contentSafeAreaInset: { top: 16, bottom: 10 } };
+  const bridge = { platform: 'ios', viewportStableHeight: 720, safeAreaInset: { top: 24, bottom: 20 }, contentSafeAreaInset: { top: 16, bottom: 10 } };
   const h = harness(bridge);
   assert.equal(h.root.dataset.compactArena, 'true');
-  assert.equal(h.css.get('--app-height'), '640px');
+  assert.equal(h.css.get('--app-height'), '720px');
   bridge.safeAreaInset = {top: 0, bottom: 0};
   bridge.contentSafeAreaInset = {top: 0, bottom: 0};
   h.events.get('contentSafeAreaChanged')();

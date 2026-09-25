@@ -1,0 +1,126 @@
+/* Battle outcomes use the shared purple result surface, outcome and net roles.
+   Only result composition, close-timer geometry and viewport placement live here. */
+.last-battle-card.ui-result {
+  margin-block: var(--ui-space-4);
+  overflow-wrap: anywhere;
+}
+.last-battle-heading,
+.last-battle-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--ui-space-2);
+}
+.last-battle-heading { align-items: flex-start; }
+.last-battle-heading .ui-title { max-width: 100%; }
+.last-battle-outcome {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-1);
+}
+.last-battle-outcome .ui-icon { width: 21px; height: 21px; }
+.last-battle-summary { margin-top: var(--ui-space-3); }
+.last-battle-opponent {
+  flex: 1 1 170px;
+  min-width: 0;
+  font-weight: 700;
+}
+.last-battle-opponent .ui-icon {
+  width: 25px;
+  height: 25px;
+  margin-right: var(--ui-space-1);
+  vertical-align: middle;
+}
+.last-battle-net.ui-net { white-space: normal; }
+/* A free defeat can still award a positive net: badge and money are independent. */
+.ui-result .ui-net[data-tone=success] { color: var(--ui-success); }
+.ui-result .ui-net[data-tone=error] { color: var(--ui-error); }
+.last-battle-details {
+  margin: var(--ui-space-2) 0 0;
+  font-size: var(--ui-text-sm);
+  line-height: var(--ui-leading-body);
+}
+
+/* The four-second notice is dismissible without blocking navigation or history.
+   Runtime still owns the deadline, focus restoration and inset values. */
+.result-toast.ui-result {
+  position: fixed;
+  z-index: 100;
+  top: calc(20px + var(--app-inset-top));
+  left: calc(50% + (var(--app-inset-left) - var(--app-inset-right)) / 2);
+  transform: translateX(-50%);
+  width: min(420px, calc(100% - 32px - var(--app-inset-left) - var(--app-inset-right)));
+  max-height: calc(var(--app-height) - var(--app-inset-top) - var(--app-inset-bottom) - 40px);
+  padding: var(--ui-space-4);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.result-toast-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  min-height: 60px;
+  margin: calc(-1 * var(--ui-space-2)) calc(-1 * var(--ui-space-2)) var(--ui-space-3);
+  padding: var(--ui-space-2) 60px var(--ui-space-3) var(--ui-space-2);
+}
+.result-toast-heading h2 {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ui-text-headline);
+}
+.result-toast-mark { display: inline-flex; align-items: center; }
+.result-toast-mark .ui-icon { width: 32px; height: 32px; }
+.result-toast-net.ui-net {
+  display: block;
+  white-space: normal;
+  font-size: var(--ui-text-title);
+}
+.result-toast-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ui-space-1) var(--ui-space-3);
+  margin: var(--ui-space-3) 0 var(--ui-space-2);
+  font-size: var(--ui-text-sm);
+}
+.result-toast small {
+  display: block;
+  font-size: var(--ui-text-sm);
+  line-height: var(--ui-leading-body);
+}
+.result-toast-close.ui-button {
+  position: absolute;
+  z-index: 1;
+  top: var(--ui-space-3);
+  right: var(--ui-space-3);
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border-radius: 50%;
+}
+.result-toast-close > .ui-icon { width: 22px; height: 22px; }
+.result-close-timer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 44px;
+  height: 44px;
+  transform: translate(-50%, -50%) rotate(-90deg);
+  fill: none;
+  stroke: var(--ui-text);
+  stroke-width: 2;
+  pointer-events: none;
+}
+.result-close-track { opacity: .25; }
+#result-close-progress {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset .25s linear;
+}
+@media (max-width: 335px) {
+  .result-toast-heading h2 { font-size: var(--ui-text-title); }
+  .result-toast-mark .ui-icon { width: 24px; height: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #result-close-progress { transition: none; }
+}

@@ -109,26 +109,26 @@ def check_layout(page, label):
 
 def check_battle_rules(battle):
     """The real API, countdown and tap budget use the new simpler rules."""
+    assert battle["rules_version"] == "v6"
     assert battle["ends_at"] - battle["starts_at"] == 10
     assert battle["tap_cap"] == 90
     assert "stance" not in battle["you"]
     assert "stance" not in battle["opponent"]
 
 
-def check_last_battle(page, battle, language="ru"):
-    """The last completed result stays visible and has no dismiss/action button."""
-    card = page.locator(".last-battle-card")
-    expect(card).to_have_count(1)
-    expect(card).to_be_visible()
-    expect(card).to_have_attribute("data-battle-id", battle["id"])
-    expect(card).to_contain_text("Последний бой" if language == "ru" else "Last battle")
+def check_history_result(page, battle, language="ru"):
+    """Completed results remain in history without a separate Last Battle card."""
+    expect(page.locator(".last-battle-card, #last-result")).to_have_count(0)
+    row = page.locator(".history-row").first
+    expect(row).to_be_visible()
+    expect(row).to_contain_text(("Победа" if battle["result"]["won"] else "Поражение")
+                               if language == "ru" else ("Victory" if battle["result"]["won"] else "Defeat"))
     if not battle["opponent"]["is_bot"]:
-        expect(card).to_contain_text(battle["opponent"]["name"])
-    assert card.locator("button").count() == 0
+        expect(row).to_contain_text(battle["opponent"]["name"])
     net = page.evaluate("""({minor, locale}) => (minor > 0 ? '+' : minor < 0 ? '−' : '') +
         new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(Math.abs(minor) / 100)
     """, {"minor": battle["result"]["net_minor"], "locale": "ru-RU" if language == "ru" else "en-US"})
-    expect(card).to_contain_text(net)
+    expect(row.locator(".history-reward")).to_contain_text(net)
 
 
 def check_english_ui(page, state):
@@ -159,7 +159,7 @@ def check_languages(page, artifacts):
     state = server_state(page)
     page.locator('[data-language="en"]').click()
     expect(page.locator("html")).to_have_attribute("lang", "en")
-    check_last_battle(page, state["battle"], language="en")
+    check_history_result(page, state["battle"], language="en")
     page.reload(wait_until="networkidle")
     expect(page.locator("html")).to_have_attribute("lang", "en")
     assert page.evaluate("localStorage.getItem('rooster.v1.language')") == "en"
@@ -177,11 +177,11 @@ def check_languages(page, artifacts):
         box = toggle.bounding_box()
         assert box["x"] >= header["x"] and box["x"] + box["width"] <= header["x"] + header["width"] + 1
     tab(page, "arena")
-    check_last_battle(page, state["battle"], language="en")
+    check_history_result(page, state["battle"], language="en")
     page.screenshot(path=str(artifacts / "arena-english-mobile.png"), full_page=True, animations="disabled")
     page.locator('[data-language="ru"]').click()
     expect(page.locator("html")).to_have_attribute("lang", "ru")
-    check_last_battle(page, state["battle"])
+    check_history_result(page, state["battle"])
 
 
 def check_hit_feedback(page, clock, artifacts):
@@ -224,9 +224,10 @@ def check_hit_feedback(page, clock, artifacts):
     clock.value = battle["starts_at"]
     refresh(page)
     expect(page.locator('[data-action="battle-tap"]')).to_be_enabled()
-    # Ignore the unrelated 200 ms page-entry translation before measuring
-    # whether a combat hit changes the tap button's layout position.
+    # Ignore page entry and the existing 180 ms combat-start pulse before
+    # measuring whether a combat hit changes the tap button's layout position.
     page.wait_for_function("() => getComputedStyle(document.getElementById('main')).transform === 'none'")
+    page.wait_for_function("() => getComputedStyle(document.querySelector('.battle-tap')).transform === 'none'")
     button_before = page.evaluate('document.querySelector("[data-action=battle-tap]").getBoundingClientRect().toJSON()')
     immediate = page.evaluate("""() => {
         const requests = window.__roosterTapRequests;
@@ -383,7 +384,7 @@ def check_hit_feedback(page, clock, artifacts):
     assert page.evaluate("window.__roosterTapRequests") == requests_before_expired_space
     clock.value = battle["ends_at"] + 1
     refresh(page)
-    expect(page.locator(".last-battle-card")).to_be_visible()
+    expect(page.locator(".history-row")).not_to_have_count(0)
 
 
 def exercise(browser, base_url, clock, artifacts):
@@ -396,6 +397,7 @@ def exercise(browser, base_url, clock, artifacts):
         context.add_init_script("""if (!localStorage.getItem('rooster.v1.identity')) {
             localStorage.setItem('rooster.v1.identity', JSON.stringify(%s));
         }""" % json.dumps({"user_id": user_id, "name": name}))
+        context.add_init_script("localStorage.setItem('rooster.v1.guideSeen.v1', '1')")
         page = context.new_page()
         page.set_default_timeout(15_000)
         page.on("pageerror", lambda error: errors.append(str(error)))
@@ -458,12 +460,12 @@ def exercise(browser, base_url, clock, artifacts):
         clock.value = battle["ends_at"] + 1
         refresh(a)
         expect(a.locator("#navigation")).to_be_visible()
-        expect(a.locator(".last-battle-card")).to_be_visible()
+        expect(a.locator(".history-row")).not_to_have_count(0)
         finished = server_state(a)
         assert not finished["battle"]["result"]["won"]
         assert finished["battle"]["result"]["payout_minor"] == 1500
         assert finished["player"]["balance_minor"] == 43500
-        check_last_battle(a, finished["battle"])
+        check_history_result(a, finished["battle"])
         toast = a.locator('#battle-result-toast')
         expect(toast).to_be_visible()
         a.screenshot(path=str(artifacts / 'result-toast-mobile.png'), full_page=True)
@@ -472,14 +474,14 @@ def exercise(browser, base_url, clock, artifacts):
         assert 20 < progress < 90, progress
         refresh(a)  # Must not restart the four-second countdown.
         expect(toast).to_be_hidden(timeout=3500)
-        check_last_battle(a, finished["battle"])
+        check_history_result(a, finished["battle"])
         refresh(a)
         expect(toast).to_be_hidden()
-        # An old UI's dismissed flag must not hide the persistent result card.
+        # Old result-card preferences cannot remove the completed battle from history.
         a.evaluate("id => sessionStorage.setItem('rooster.v1.dismissedBattle', id)", battle["id"])
         a.reload(wait_until="networkidle")
         assert server_state(a)["player"]["balance_minor"] == 43500
-        check_last_battle(a, finished["battle"])
+        check_history_result(a, finished["battle"])
         assert a.locator('[data-action="start-free"]').count() == 0
         assert a.locator('[data-action="start-practice"]').count() == 0
 
@@ -520,21 +522,24 @@ def exercise(browser, base_url, clock, artifacts):
         assert paid["wager"] == committed["battle"]["wager"]
         assert paid["opponent"] == committed["battle"]["opponent"]
         check_battle_rules(paid)
-        check_last_battle(a, finished["battle"])
+        # Gameplay reserves the viewport for this battle; the previous result
+        # remains in server history while the removed result card stays absent.
+        expect(a.locator(".last-battle-card")).to_have_count(0)
+        assert committed["history"][0]["id"] == finished["battle"]["id"]
         a.reload(wait_until="networkidle")
         assert server_state(a)["battle"]["id"] == paid["id"]
-        check_last_battle(a, finished["battle"])
+        expect(a.locator(".last-battle-card")).to_have_count(0)
         clock.value = paid["ends_at"] + 1
         refresh(a)
-        expect(a.locator(".last-battle-card")).to_be_visible()
+        expect(a.locator(".history-row")).not_to_have_count(0)
         lost = server_state(a)
         assert not lost["battle"]["result"]["won"]
         assert lost["battle"]["result"]["payout_minor"] == 0
         assert lost["battle"]["result"]["net_minor"] == -1000
         assert lost["player"]["balance_minor"] == before_paid - 1000
-        check_last_battle(a, lost["battle"])
+        check_history_result(a, lost["battle"])
 
-        # Only equal stakes can match, and 95% of the combined pool is paid.
+        # Different stakes match immediately; each winner receives 1.9 of their own stake.
         a.locator('[data-action="stake"][data-stake-minor="2500"]').click()
         a.locator('[data-action="arena-mode"][data-mode="online"]').click()
         before_queue = server_state(a)["player"]["balance_minor"]
@@ -542,7 +547,8 @@ def exercise(browser, base_url, clock, artifacts):
         assert queued["state"]["queue"]["stake_minor"] == 2500
         assert queued["state"]["player"]["balance_minor"] == before_queue
         expect(a.locator(".queue-card")).to_contain_text("25")
-        check_last_battle(a, lost["battle"])
+        expect(a.locator(".last-battle-card, #last-result")).to_have_count(0)
+        assert server_state(a)["history"][0]["id"] == lost["battle"]["id"]
         cancelled = command(a, '[data-action="queue-leave"]', "queue/leave")
         assert cancelled["state"]["queue"] is None
         context_b, b = player_context("browser_bob", "Боб Бойцовский")
@@ -551,12 +557,8 @@ def exercise(browser, base_url, clock, artifacts):
             refresh(a)
             present = server_state(a)["presence"]
             assert present["online"] == 0 and present["development_online"] == 2
-            before_pvp = server_state(a)["player"]["balance_minor"] + server_state(b)["player"]["balance_minor"]
+            balances_before_pvp = [server_state(page)["player"]["balance_minor"] for page in (a, b)]
             command(a, '[data-action="queue-join"]', "queue/join")
-            unequal = command(b, '[data-action="queue-join"]', "queue/join")
-            assert not unequal["result"]["matched"]
-            command(b, '[data-action="queue-leave"]', "queue/leave")
-            b.locator('[data-action="stake"][data-stake-minor="2500"]').click()
             matched = command(b, '[data-action="queue-join"]', "queue/join")
             assert matched["result"]["matched"]
             expect(a.locator(".battle-card")).to_be_visible()
@@ -565,18 +567,22 @@ def exercise(browser, base_url, clock, artifacts):
             check_battle_rules(pvp_a)
             assert pvp_a["id"] == pvp_b["id"]
             assert pvp_a["wager"] == {"stake_minor": 2500, "win_payout_minor": 4750}
-            check_last_battle(a, lost["battle"])
+            assert pvp_b["wager"] == {"stake_minor": 1000, "win_payout_minor": 1900}
+            expect(a.locator(".last-battle-card")).to_have_count(0)
             clock.value = pvp_a["ends_at"] + 1
             refresh(a)
             refresh(b)
-            expect(a.locator(".last-battle-card")).to_be_visible()
-            expect(b.locator(".last-battle-card")).to_be_visible()
+            expect(a.locator(".history-row")).not_to_have_count(0)
+            expect(b.locator(".history-row")).not_to_have_count(0)
             settled_a, settled_b = server_state(a), server_state(b)
             assert settled_a["battle"]["result"]["won"] != settled_b["battle"]["result"]["won"]
-            assert settled_a["player"]["balance_minor"] + settled_b["player"]["balance_minor"] == before_pvp - 250
+            for before, settled, stake in zip(balances_before_pvp, (settled_a, settled_b), (2500, 1000)):
+                expected_payout = stake * 19 // 10 if settled["battle"]["result"]["won"] else 0
+                assert settled["battle"]["result"]["payout_minor"] == expected_payout
+                assert settled["player"]["balance_minor"] == before - stake + expected_payout
             assert settled_a["player"]["pvp_wins"] == settled_b["player"]["pvp_wins"] == 0
-            check_last_battle(a, settled_a["battle"])
-            check_last_battle(b, settled_b["battle"])
+            check_history_result(a, settled_a["battle"])
+            check_history_result(b, settled_b["battle"])
             winner = a if settled_a["battle"]["result"]["won"] else b
             expect(winner.locator('#battle-result-toast')).to_be_visible()
             expect(winner.locator('#battle-result-toast h2')).to_have_text('Победа')
@@ -664,10 +670,10 @@ def main():
             server.server_close()
     print("Browser checks passed: first free loss reward, single currency, 10s/90 unthrottled taps, "
           "fixed roulette reload, daily/passive, upgrades/breeds, lost paid start/purchase retry, "
-          "paid loss, equal-stake PvP/95% pool, two rankings, instant/retriggered hit animation, "
+          "paid loss, different-stake PvP/own-stake payout, two rankings, instant/retriggered hit animation, "
           "animation survives command/poll renders, reduced motion, phase guards, "
           "Space press/repeat/keyup/scroll and native-control guards, "
-          "persistent last-result card through reload/active battle/queue, "
+          "history through reload and queue with no Last Battle card, "
           "RU/EN persistence and complete screens, language switching preserves combat feedback/taps, "
           "320/390/1280 layouts, zero JS errors.")
     print("Screenshots: {}".format(args.artifacts_dir))

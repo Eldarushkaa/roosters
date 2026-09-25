@@ -5,7 +5,7 @@ import itertools
 import json
 import unittest
 
-from roosters import rules
+from roosters import rules, rules_v4, rules_v5
 
 
 class ProgressionTests(unittest.TestCase):
@@ -94,7 +94,7 @@ class CatalogTests(unittest.TestCase):
             "duration": 10, "roulette_duration": 2, "tap_cap": 90,
             "tap_bonus_cap": 0.2, "stakes_minor": [1000, 2500, 5000, 10000],
             "bot_power_min_ratio": 0.7, "bot_power_max_ratio": 1.4,
-            "bot_rtp_min": 0.9, "bot_rtp_max": 1.05, "pvp_pool_return": 0.95,
+            "bot_rtp_min": 0.9, "bot_rtp_max": 1.1, "pvp_win_multiplier": 1.9,
             "free_reward_minor": 1500,
         })
 
@@ -117,17 +117,17 @@ class BotProbabilityTests(unittest.TestCase):
             base = Fraction(power, power + opponent)
             for taps in range(101):
                 chance = rules.bot_probability(power, opponent, taps)
-                self.assertEqual(chance, base * Fraction(540 + min(taps, 90), 540))
+                self.assertEqual(chance, base * Fraction(405 + min(taps, 90), 405))
                 self.assertGreater(chance, 0)
                 self.assertLess(chance, 1)
-            self.assertEqual(rules.bot_probability(power, opponent, 100000), base * Fraction(7, 6))
+            self.assertEqual(rules.bot_probability(power, opponent, 100000), base * Fraction(11, 9))
 
     def test_bot_quote_has_exact_endpoints_and_includes_the_stake(self):
         for stake in (1000, 2500, 5000, 10000):
             payout = rules.bot_payout(stake, 100, 100)
             self.assertEqual(payout, stake * 9 // 5)
             self.assertEqual(rules.bot_probability(100, 100, 0) * payout / stake, Fraction(9, 10))
-            self.assertEqual(rules.bot_probability(100, 100, 90) * payout / stake, Fraction(21, 20))
+            self.assertEqual(rules.bot_probability(100, 100, 90) * payout / stake, Fraction(11, 10))
         self.assertEqual(rules.bot_payout(1000, 100, 70), 1530)
         self.assertEqual(rules.bot_payout(1000, 100, 140), 2160)
 
@@ -147,9 +147,16 @@ class BotProbabilityTests(unittest.TestCase):
                     rtp90 = p90 * payout / stake
                     self.assertLessEqual(rtp0, Fraction(9, 10))
                     self.assertGreater(rtp0, Fraction(9, 10) - p0 / stake)
-                    self.assertLessEqual(rtp90, Fraction(21, 20))
-                    self.assertGreater(rtp90, Fraction(21, 20) - p90 / stake)
-                    self.assertEqual(rtp90, rtp0 * Fraction(7, 6))
+                    self.assertLessEqual(rtp90, Fraction(11, 10))
+                    self.assertGreater(rtp90, Fraction(11, 10) - p90 / stake)
+                    self.assertEqual(rtp90, rtp0 * Fraction(11, 9))
+
+    def test_v4_bot_curve_remains_at_105_percent_and_v5_reaches_110(self):
+        for engine, maximum in ((rules_v4, Fraction(21, 20)), (rules, Fraction(11, 10))):
+            prize = engine.bot_payout(1000, 100, 100)
+            self.assertEqual(prize, 1800)
+            self.assertEqual(engine.bot_probability(100, 100, 0) * prize / 1000, Fraction(9, 10))
+            self.assertEqual(engine.bot_probability(100, 100, 90) * prize / 1000, maximum)
 
     def test_quote_does_not_use_floating_point_even_for_huge_powers(self):
         power = 10**30 + 3
@@ -223,13 +230,13 @@ class PvPProbabilityTests(unittest.TestCase):
 
 
 class PayoutTests(unittest.TestCase):
-    def test_pvp_pool_returns_exactly_ninety_five_percent(self):
+    def test_pvp_pays_nineteen_tenths_of_own_stake(self):
         for stake, prize in ((1000, 1900), (2500, 4750), (5000, 9500), (10000, 19000)):
             self.assertEqual(rules.online_payout(stake), prize)
-            self.assertEqual(Fraction(prize, 2 * stake), Fraction(19, 20))
-            self.assertEqual(2 * stake - prize, stake // 10)
+            self.assertEqual(Fraction(prize, stake), Fraction(19, 10))
+            self.assertEqual(prize - stake, 9 * stake // 10)
 
-    def test_pvp_aggregate_return_is_independent_of_win_probability(self):
+    def test_equal_stakes_still_have_ninety_five_percent_aggregate_return(self):
         for stake, chance in itertools.product(rules.STAKES_MINOR,
                                               (Fraction(1, 10), Fraction(1, 2), Fraction(9, 10))):
             prize = rules.online_payout(stake)
@@ -237,12 +244,29 @@ class PayoutTests(unittest.TestCase):
             return_b = (1 - chance) * prize
             self.assertEqual((return_a + return_b) / (2 * stake), Fraction(19, 20))
 
-    def test_only_allowlisted_integer_stakes_can_produce_prizes(self):
-        for stake in (0, -1000, True, 1000.0, "1000", None, 1001, 100000):
+    def test_pvp_personal_expectation_scales_with_win_probability(self):
+        for stake, chance in itertools.product(rules.STAKES_MINOR,
+                                              (Fraction(1, 10), Fraction(1, 2), Fraction(9, 10))):
+            expected_gross = chance * rules.online_payout(stake)
+            self.assertEqual(expected_gross / stake, chance * Fraction(19, 10))
+            self.assertEqual(expected_gross - stake, stake * (chance * Fraction(19, 10) - 1))
+
+    def test_only_supported_integer_stakes_can_produce_prizes(self):
+        for stake in (0, -1000, True, 1000.0, "1000", None, 999, rules.MAX_STAKE_MINOR + 1):
             with self.subTest(stake=stake), self.assertRaises(ValueError):
                 rules.online_payout(stake)
             with self.subTest(stake=stake), self.assertRaises(ValueError):
                 rules.bot_payout(stake, 100, 100)
+
+    def test_custom_stakes_floor_exact_prizes_and_keep_json_integers_safe(self):
+        for stake in (1001, 12345, 42000, 100000, rules.MAX_STAKE_MINOR):
+            self.assertEqual(rules.online_payout(stake), 19 * stake // 10)
+            for opponent in (70, 100, 140):
+                prize = rules.bot_payout(stake, 100, opponent)
+                self.assertEqual(prize, stake * 9 * (100 + opponent) // 1000)
+                self.assertLessEqual(prize, rules.MAX_SAFE_INTEGER)
+        with self.assertRaises(ValueError):
+            rules_v5.online_payout(1001)
 
 
 class RewardTests(unittest.TestCase):

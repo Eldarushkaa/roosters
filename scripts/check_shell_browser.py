@@ -101,6 +101,7 @@ def exercise(browser, url, clock, artifacts):
                 context.add_init_script('const snapshotTime = Date.now(); Date.now = () => snapshotTime;')
                 context.add_init_script("localStorage.setItem('rooster.v1.identity', JSON.stringify(%s))" % json.dumps(
                     {'user_id': label, 'name': 'Игрок оболочки'}))
+                context.add_init_script("localStorage.setItem('rooster.v1.guideSeen.v1', '1')")
                 page = context.new_page()
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 page.goto(url, wait_until='networkidle')
@@ -152,7 +153,14 @@ def exercise(browser, url, clock, artifacts):
                 assert_controls(page, label, essential=not telegram, bottom_inset=inset, top_inset=40 if telegram else 0)
                 page.screenshot(path=str(artifacts / f'{label}-battle.png'))
                 page.wait_for_load_state('networkidle')
-                page.evaluate("document.querySelector('.battle-help').open = true; document.querySelector('.battle-overview').scrollTop = 50")
+                # Supporting battle details scroll independently of the tap
+                # control; environment events must preserve that real offset.
+                overview_scroll = page.locator('.battle-overview').evaluate('''node => {
+                    node.scrollTop = node.scrollHeight;
+                    return node.scrollTop;
+                }''')
+                if height <= 640:
+                    assert overview_scroll > 0
                 theme(page, opposite, telegram, preserve=True)
                 theme(page, scheme, telegram)
                 if telegram:
@@ -177,6 +185,16 @@ def exercise(browser, url, clock, artifacts):
                 result_box = page.locator('#battle-result-toast').bounding_box()
                 assert result_box['y'] >= (40 if telegram else 0)
                 assert result_box['y'] + result_box['height'] <= height - inset
+                expect(page.locator('#battle-result-toast.ui-result')).to_be_visible()
+                expect(page.locator('.last-battle-card, #last-result')).to_have_count(0)
+                assert page.locator('#battle-result-toast').evaluate('''node => {
+                    const close = node.querySelector('[data-action=close-result]');
+                    const box = close.getBoundingClientRect();
+                    return getComputedStyle(node.querySelector('h2')).fontFamily.includes('Arena Nunito')
+                        && box.width >= 44 && box.height >= 44
+                        && close.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
+                        && getComputedStyle(node.querySelector('#result-close-progress')).transitionDuration === '0s';
+                }'''), label + ': result styling, dismissal or reduced motion'
                 page.locator('[data-action=close-result]').click()
                 # Smoke all existing destinations; only theme/shell may change.
                 for destination in ['gear', 'roost', 'leaderboard', 'arena']:

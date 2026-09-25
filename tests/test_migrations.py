@@ -6,7 +6,8 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from roosters import rules, wallet
+from roosters import rules, rules_v4, wallet
+from roosters.service import GameService, encode
 from roosters.storage import Database, SINGLE_CURRENCY_MIGRATION
 
 
@@ -87,7 +88,7 @@ class MigrationTests(unittest.TestCase):
         self.database.migrate()
         self.assertEqual(self.rows("players")[0]["balance_minor"], 19425)
         self.assertEqual(len(self.rows("coin_ledger")), 3)
-        self.assertEqual(len(self.rows("schema_migrations")), 4)
+        self.assertEqual(len(self.rows("schema_migrations")), 5)
 
     def test_active_battle_alone_uses_first_free_battle(self):
         self.player("tg:1")
@@ -141,3 +142,46 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(columns["stake_minor"]["dflt_value"], "1000")
             indexes = {r["name"] for r in db.execute("PRAGMA index_list(players)")}
             self.assertTrue({"players_power_ranking", "players_pvp_ranking"}.issubset(indexes))
+
+    def test_v5_migration_preserves_v4_active_and_finished_personal_wagers(self):
+        # Exercise the actual old schema, not a v5 row relabelled as v4.
+        old_migrations = sorted((Path(__file__).parents[1] / "roosters/migrations").glob("00[1-4]_*.sql"))
+        with patch("roosters.storage.Path.glob", return_value=old_migrations):
+            self.database.migrate()
+        for pid in ("tg:1", "tg:2", "tg:waiting"):
+            self.player(pid)
+        self.battle("active-v4", "tg:1", "tg:2", mode="online", status="active", version="v4")
+        self.battle("finished-v4", "tg:1", "tg:2", mode="online", winner="tg:2", version="v4")
+        with self.database.transaction() as db:
+            db.execute("UPDATE battles SET stake_minor=2500,win_payout_minor=4750")
+            db.execute("UPDATE battles SET result_a=?,result_b=? WHERE id='finished-v4'", (
+                encode({"won": False, "xp": 12, "payout_minor": 0, "net_minor": -2500}),
+                encode({"won": True, "xp": 25, "payout_minor": 4750, "net_minor": 2250})))
+            db.execute("UPDATE players SET battle_id='active-v4',first_battle_used=1 WHERE id IN ('tg:1','tg:2')")
+            db.execute("INSERT INTO queue(player_id,power,joined_at,expires_at,deadline,stake_minor) VALUES (?,?,?,?,?,?)",
+                       ("tg:waiting", 194, NOW, NOW + 60, NOW + 120, 10000))
+        before = {table: self.rows(table) for table in ("players", "battles", "queue", "coin_ledger", "commands")}
+        self.database.migrate()
+        self.database.migrate()
+        for table, previous_rows in before.items():
+            for previous, current in zip(previous_rows, self.rows(table)):
+                self.assertEqual(previous, {key: current[key] for key in previous}, table)
+            self.assertEqual(len(previous_rows), len(self.rows(table)), table)
+        for battle in self.rows("battles"):
+            self.assertEqual(battle["stake_b_minor"], 2500)
+            self.assertEqual(battle["win_payout_b_minor"], 4750)
+        service = GameService(self.database, clock=lambda: NOW)
+        for pid in ("tg:1", "tg:2"):
+            state = service.state(pid)
+            self.assertEqual(state["battle"]["rules_version"], "v4")
+            self.assertEqual(state["battle"]["tap_cap"], 90)
+            self.assertEqual(state["battle"]["wager"], {"stake_minor": 2500, "win_payout_minor": 4750})
+            self.assertEqual(state["history"][0]["wager"], state["battle"]["wager"])
+            self.assertEqual(state["history"][0]["result"]["net_minor"], -2500 if pid == "tg:1" else 2250)
+        service.clock = lambda: NOW + 10
+        service.tick()
+        for pid, won in (("tg:1", True), ("tg:2", False)):
+            result = service.state(pid)["battle"]["result"]
+            self.assertEqual(result["payout_minor"], 4750 if won else 0)
+            self.assertEqual(result["net_minor"], 2250 if won else -2500)
+            self.assertEqual(result["xp"], rules_v4.rewards("online", won)["xp"])

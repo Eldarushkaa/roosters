@@ -1,0 +1,142 @@
+/* Battle composition. Shared foundation classes own every surface and control.
+   The half-viewport tap target and independently scrolling overview are retained. */
+.app-shell.battle-mode {
+  --battle-safe-top: calc(var(--app-inset-top));
+  --battle-safe-bottom: calc(var(--app-inset-bottom));
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  width: 100%;
+  max-width: 640px;
+  height: 100vh;
+  height: var(--app-height);
+  padding: calc(8px + var(--battle-safe-top))
+    calc(16px + var(--app-inset-right))
+    calc(8px + var(--battle-safe-bottom))
+    calc(16px + var(--app-inset-left));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--ui-space-2);
+  color: var(--ui-text);
+  background: var(--ui-bg);
+}
+.battle-mode .app-header { margin: 0; min-height: var(--ui-touch); justify-content: flex-end; }
+.battle-mode .brand { display: none; }
+.battle-mode .connection-pill { border: 0; padding: var(--ui-space-2); }
+.battle-mode #connection-label { display: none; }
+.battle-mode .dev-banner, .battle-mode .player-bar, .battle-mode .app-footer { display: none; }
+.battle-mode #main { min-height: 0; animation: none; }
+.battle-layout {
+  height: 100%;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  font: var(--ui-text-body)/var(--ui-leading-body) var(--ui-font-body);
+}
+.battle-overview {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ui-muted) var(--ui-panel);
+  padding-bottom: var(--ui-space-2);
+}
+/* Battle title/timer share the existing header row with the locale selector.
+   This keeps live time visible while supporting details scroll, and frees a
+   complete row for fighters on short screens without reducing the tap target. */
+.battle-heading {
+  position: absolute;
+  top: calc(8px + var(--battle-safe-top));
+  left: calc(16px + var(--app-inset-left));
+  height: var(--ui-touch);
+  max-width: calc(100% - 152px - var(--app-inset-left) - var(--app-inset-right));
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+}
+.battle-heading > div:first-child { min-width: 0; }
+.battle-heading h1 { font-size: var(--ui-text-title); }
+.battle-heading .eyebrow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ui-text-xs); letter-spacing: 0; margin-bottom: 0; }
+.battle-timer { flex-shrink: 0; padding: var(--ui-space-1); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.battle-timer .ui-title { font-size: var(--ui-text-title); }
+.battle-timer small { font: var(--ui-text-sm)/1 var(--ui-font-body); color: var(--ui-muted); }
+.battle-card { overflow: hidden; }
+.battle-topline { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-2); color: var(--ui-muted); font-size: var(--ui-text-sm); }
+.battle-topline > :last-child { text-align: right; overflow-wrap: anywhere; }
+.live-tag { display: inline-flex; align-items: center; gap: var(--ui-space-1); flex-shrink: 0; color: var(--ui-text); font-weight: 700; }
+.live-tag .status-dot { background: var(--ui-gold); box-shadow: none; }
+.battle-duration-track { margin: var(--ui-space-2) 0 var(--ui-space-3); }
+.battle-duration-track > div { transition: width .25s linear; }
+.fighters {
+  position: relative;
+  isolation: isolate;
+  --strike-distance: clamp(38px, 14vw, 68px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
+  gap: var(--ui-space-2);
+  align-items: center;
+  text-align: center;
+}
+.fighters > div { min-width: 0; }
+.fighter-avatar { position: relative; display: grid; place-items: center; width: 72px; height: 72px; padding: 0; margin: 0 auto var(--ui-space-2); }
+.fighter-avatar svg { width: 80px; height: 80px; }
+/* Keep movement separate from mirrored art, with the existing animation hooks. */
+.fighter-motion { width: 100%; height: 100%; display: grid; place-items: center; transform-origin: 50% 75%; }
+.fighter-avatar.opponent .rooster-svg { transform: scaleX(-1); }
+.battle-hit-effects { position: absolute; pointer-events: none; z-index: 2; top: 12px; left: 64%; width: 50px; height: 50px; }
+.hit-slash { position: absolute; inset: 3px -8px; border-top: 3px solid var(--ui-gold); border-radius: 50%; opacity: 0; }
+.hit-spark { position: absolute; left: 22px; top: 19px; width: 7px; height: 4px; border-radius: 2px; background: var(--ui-gold); opacity: 0; }
+.hit-spark:nth-of-type(2) { --spark-x: -26px; --spark-y: -19px; }
+.hit-spark:nth-of-type(3) { --spark-x: 24px; --spark-y: -23px; }
+.hit-spark:nth-of-type(4) { --spark-x: 28px; --spark-y: 15px; }
+.hit-spark:nth-of-type(5) { --spark-x: -17px; --spark-y: 23px; }
+.fighter-name { display: block; max-width: 100%; margin: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ui-text-body); }
+.fighter-meta { margin-top: var(--ui-space-1); color: var(--ui-muted); font-size: var(--ui-text-sm); line-height: var(--ui-leading-body); }
+.fighter-meta b { color: var(--ui-text); white-space: nowrap; }
+.fighter-meta .ui-icon { width: 14px; height: 14px; margin-right: 2px; }
+.vs { font-size: var(--ui-text-action); font-style: italic; }
+.battle-odds { margin-top: var(--ui-space-2); padding-top: var(--ui-space-2); border-top: 2px solid var(--ui-ink); }
+.battle-odds > div { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-3); font-size: var(--ui-text-sm); }
+.battle-odds strong { font-variant-numeric: tabular-nums; }
+.battle-prize.ui-info { display: block; margin-top: var(--ui-space-2); padding: var(--ui-space-2); }
+.roulette { margin-bottom: var(--ui-space-3); text-align: center; }
+.roulette .eyebrow { color: var(--ui-muted); font-size: var(--ui-text-sm); letter-spacing: 0; }
+.roulette-window.ui-badge { display: block; height: 46px; overflow: hidden; width: 130px; margin: var(--ui-space-1) auto; padding: 0; }
+.roulette-track { animation-name: roulette-reveal; animation-timing-function: cubic-bezier(.1,.7,.3,1); animation-fill-mode: forwards; }
+.roulette-track > span { display: block; height: 42px; font: var(--ui-weight-display) var(--ui-text-headline)/42px var(--ui-font-display); color: var(--ui-text); }
+.roulette p { margin: var(--ui-space-1) 0 0; font-size: var(--ui-text-sm); line-height: var(--ui-leading-body); color: var(--ui-muted); }
+@keyframes roulette-reveal { from { transform: translateY(0); } to { transform: translateY(-252px); } }
+.battle-controls { padding-top: var(--ui-space-3); border-top: 2px solid var(--ui-ink); background: var(--ui-bg); }
+.tap-score { display: flex; justify-content: space-between; flex-wrap: wrap; gap: var(--ui-space-1) var(--ui-space-2); margin: 0 0 var(--ui-space-2); color: var(--ui-muted); font-size: var(--ui-text-sm); }
+.tap-score strong { color: var(--ui-text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.battle-tap.ui-button {
+  width: 100%;
+  height: calc((var(--app-height) - var(--battle-safe-top) - var(--battle-safe-bottom)) / 2);
+  min-height: 80px;
+  flex-direction: column;
+  gap: var(--ui-space-2);
+  padding: var(--ui-space-3);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.battle-tap > strong { font-size: var(--ui-text-headline); }
+.battle-tap > span { font: 700 var(--ui-text-sm)/var(--ui-leading-body) var(--ui-font-body); }
+#battle-tap-title .ui-icon { width: 24px; height: 24px; }
+.battle-caption { margin: var(--ui-space-2) 0 0; font-size: var(--ui-text-sm); line-height: var(--ui-leading-body); text-align: center; color: var(--ui-muted); }
+/* Recovery remains above gameplay and must never cover the tap target. */
+.battle-mode ~ .notice-stack { top: calc(64px + var(--app-inset-top)); bottom: auto; transform: translateX(-50%); }
+.battle-mode ~ .notice-stack .btn, .battle-mode ~ .notice-stack .dismiss { min-height: var(--ui-touch); min-width: var(--ui-touch); }
+/* Runtime computes this from Telegram's stable viewport minus safe insets. */
+:root[data-compact-battle="true"] .battle-heading .eyebrow { display: none; }
+:root[data-compact-battle="true"] .battle-card { padding: var(--ui-space-2); }
+:root[data-compact-battle="true"] .battle-duration-track { margin: var(--ui-space-1) 0 var(--ui-space-2); }
+:root[data-compact-battle="true"] .fighter-avatar { width: 44px; height: 44px; margin-bottom: var(--ui-space-1); }
+:root[data-compact-battle="true"] .fighter-avatar svg { width: 52px; height: 52px; }
+:root[data-compact-battle="true"] .roulette p { display: none; }
+:root[data-compact-battle="true"] .roulette { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-2); padding: var(--ui-space-2); margin-bottom: var(--ui-space-2); }
+:root[data-compact-battle="true"] .roulette .eyebrow { margin: 0; }
+:root[data-compact-battle="true"] .roulette-window { width: 72px; flex-shrink: 0; margin: 0; }
+:root[data-compact-battle="true"] .battle-controls { padding-top: var(--ui-space-2); }
+@media (prefers-reduced-motion: reduce) {
+  .roulette-window.ui-badge { display: none; }
+  .battle-duration-track > div { transition: none; }
+}
