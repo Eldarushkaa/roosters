@@ -115,7 +115,8 @@ def exercise(browser, url, clock, artifacts):
                 nav_geometry(page, height, inset)
                 page.screenshot(path=str(artifacts / f'{label}-arena.png'))
                 page.locator('.arena-fight').evaluate("node => node.scrollIntoView({block: 'center'})")
-                assert page.locator('.arena-fight').evaluate('''node => {
+                assert page.evaluate('''() => {
+                    const node = document.querySelector('.arena-fight');
                     const r = node.getBoundingClientRect();
                     return [0.1, 0.5, 0.9].every(y => node.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height * y)));
                 }'''), label + ': Arena action obscured after scrolling'

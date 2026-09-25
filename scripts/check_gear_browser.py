@@ -34,12 +34,14 @@ def check_controls(page, label):
     assert page.locator('.gear-screen button').evaluate_all('nodes => nodes.every(n => n.getBoundingClientRect().height >= 44)')
     assert page.locator('.gear-screen p').evaluate_all("nodes => nodes.every(n => parseFloat(getComputedStyle(n).fontSize) >= 14)")
     # Every action can be scrolled clear of native top chrome and bottom nav.
-    for button in page.locator('.gear-screen button').all():
-        button.evaluate("n => n.scrollIntoView({block:'center'})")
-        assert button.evaluate('''n => {
+    # Scroll and hit-test one DOM snapshot: a state response can replace rows
+    # between separate locator calls without changing the visible layout.
+    obscured = page.evaluate('''() => [...document.querySelectorAll('.gear-screen button')].filter(n => {
+            n.scrollIntoView({block:'center'});
             const r = n.getBoundingClientRect();
-            return [0.15, 0.5, 0.85].every(y => n.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height * y)));
-        }'''), label
+            return ![0.15, 0.5, 0.85].every(y => n.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height * y)));
+        }).map(n => n.outerHTML)''')
+    assert not obscured, (label, obscured)
 
 
 def exercise(browser, url, app, artifacts):

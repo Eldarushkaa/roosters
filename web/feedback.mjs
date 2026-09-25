@@ -46,11 +46,13 @@ export function createFeedback({ telegram, win = window, doc = document }) {
     if (error) { haptic('error', `error:${key}`); return; }
     if (['/gear/upgrade', '/breed/buy', '/claim/daily', '/claim/passive'].includes(path)) {
       haptic('impact', `command:${key}`);
-      pulse(doc.querySelector(path.startsWith('/claim/') ? '.roost-feedback' : '.gear-feedback'));
+      const target = path.startsWith('/claim/') ? `.roost-${path.split('/').pop()} .roost-feedback` : '.gear-feedback';
+      pulse(doc.querySelector(target));
     }
   }
   function result(battle, live) {
-    pulse(doc.querySelector('#battle-result-toast'));
+    // Keep the surface opaque: fading the whole notice exposes competing text below.
+    pulse(doc.querySelector('#battle-result-toast h2'));
     if (live) haptic(battle.result.won ? 'success' : 'warning', `result:${battle.id}`);
   }
   return { balance, battle, command, result };

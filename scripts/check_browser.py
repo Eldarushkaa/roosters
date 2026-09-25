@@ -57,9 +57,11 @@ def server_state(page):
 
 
 def wait_wallet(page, player):
-    page.wait_for_function("""amount => Math.round(Number(
-        document.getElementById('balance').textContent.replace(/\s/g, '').replace(',', '.')
-    ) * 100) === amount""", arg=player["balance_minor"])
+    # Compare the localized display instead of parsing EN grouping commas as decimals.
+    page.wait_for_function("""amount => document.getElementById('balance').textContent ===
+        new Intl.NumberFormat(document.documentElement.lang === 'en' ? 'en-US' : 'ru-RU',
+            {maximumFractionDigits: 2}).format(amount / 100)
+    """, arg=player["balance_minor"])
 
 
 def command(page, selector, operation):
