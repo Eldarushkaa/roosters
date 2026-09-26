@@ -74,27 +74,45 @@ def test_registration_preserves_progress_and_single_currency_contract(arena):
 
 
 def test_daily_replay_restart_and_payload_operation_conflicts(arena):
+    economy = arena.state()["economy"]
+    assert economy["daily_reward_minor"] == 10000
+    assert economy["daily_available"] is True
+    assert economy["next_daily_at"] == 0
+    claimed_at = arena.now
     key = str(uuid4())
     first = arena.cmd("claim/daily", key=key)
+    assert first["result"]["payout_minor"] == 10000
+    assert first["state"]["economy"]["daily_available"] is False
+    assert first["state"]["economy"]["next_daily_at"] == claimed_at + 10800
     replay = arena.cmd("claim/daily", key=key, service=arena.restart())
     assert first["result"] == replay["result"]
-    assert arena.player()["balance_minor"] == 59000
+    assert arena.player()["balance_minor"] == 52000
     for op, body in (("presence", {}), ("claim/daily", {"payout_minor": 1})):
         with pytest.raises(GameError) as error:
             arena.cmd(op, body, key=key)
         assert error.value.code == "idempotency_conflict"
     with pytest.raises(GameError):
         arena.cmd("claim/daily")
-    arena.now += 86400
-    arena.cmd("claim/daily")
-    assert arena.player()["balance_minor"] == 76000
+    arena.now = claimed_at + 10799
+    assert arena.restart().state("tg:a")["economy"]["daily_available"] is False
+    with pytest.raises(GameError) as error:
+        arena.cmd("claim/daily", service=arena.restart())
+    assert error.value.code == "daily_not_ready"
+    assert arena.player()["balance_minor"] == 52000
+    arena.now += 1
+    assert arena.state()["economy"]["daily_available"] is True
+    second = arena.cmd("claim/daily", service=arena.restart())
+    assert second["result"]["payout_minor"] == 10000
+    assert second["state"]["economy"]["daily_available"] is False
+    assert second["state"]["economy"]["next_daily_at"] == arena.now + 10800
+    assert arena.player()["balance_minor"] == 62000
 
 
 def test_same_key_scoped_to_player(arena):
     key = str(uuid4())
     for pid in ("tg:a", "tg:b"):
         arena.cmd("claim/daily", pid=pid, key=key)
-        assert arena.player(pid)["balance_minor"] == 59000
+        assert arena.player(pid)["balance_minor"] == 52000
 
 
 def test_passive_cap_and_fractional_minute(arena):
@@ -131,7 +149,7 @@ def test_breed_failure_atomic_and_equipping_owned_is_free(arena):
     arena.cmd("breed/buy", {"breed_id": "copper"})
     arena.cmd("breed/buy", {"breed_id": "yard"})
     arena.cmd("breed/buy", {"breed_id": "copper"})
-    assert arena.player()["balance_minor"] == 9000
+    assert arena.player()["balance_minor"] == 2000
     assert arena.service.leaderboard("tg:a")["power"][0]["power"] == 120
 
 
@@ -252,13 +270,13 @@ def test_duplicate_commands_and_concurrent_workers_credit_once(arena):
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda service: arena.cmd("claim/daily", key=key, service=service), [arena.restart(), arena.restart()]))
     assert results[0]["result"] == results[1]["result"]
-    assert arena.player()["balance_minor"] == 59000
+    assert arena.player()["balance_minor"] == 52000
     battle = arena.start()
     arena.now = battle["ends_at"]
     with ThreadPoolExecutor(max_workers=2) as pool:
         list(pool.map(lambda service: service.tick(), [arena.restart(), arena.restart()]))
     state = arena.state()
-    assert state["player"]["balance_minor"] == 58000+state["battle"]["result"]["payout_minor"]
+    assert state["player"]["balance_minor"] == 51000+state["battle"]["result"]["payout_minor"]
     assert state["player"]["battles"] == 1
 
 

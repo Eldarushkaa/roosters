@@ -12,8 +12,13 @@ function harness(bridge, dark = false, shared = {}) {
   const media = { matches: dark, addEventListener: (_, fn) => { media.change = fn; } };
   if (bridge) {
     bridge.onEvent = (name, fn) => events.set(name, fn);
-    for (const method of ['ready', 'expand', 'setHeaderColor', 'setBackgroundColor', 'setBottomBarColor']) {
-      bridge[method] = (...args) => native.push([method, ...args]);
+    for (const method of ['ready', 'expand', 'requestFullscreen', 'setHeaderColor', 'setBackgroundColor', 'setBottomBarColor']) {
+      const implementation = bridge[method];
+      if (method === 'requestFullscreen' && typeof implementation !== 'function') continue;
+      bridge[method] = (...args) => {
+        native.push([method, ...args]);
+        return implementation?.(...args);
+      };
     }
   }
   const doc = { documentElement: root, querySelector: () => ({ setAttribute() {} }),
@@ -112,8 +117,94 @@ test('version gates header keywords, bottom bar and activation; ready/expand hap
     assert.equal(h.native.filter(([name]) => name === 'expand').length, 1);
     assert.equal(h.native.some(([name]) => name === 'setBottomBarColor'), atLeast('7.10'));
     assert.equal(h.events.has('activated'), atLeast('8.0'));
+    assert.equal(h.events.has('fullscreenChanged'), atLeast('8.0'));
+    assert.equal(h.events.has('fullscreenFailed'), atLeast('8.0'));
     if (atLeast('6.1')) assert.equal(h.native.find(([name]) => name === 'setHeaderColor')[1], atLeast('6.9') ? '#10171f' : 'bg_color');
   }
+});
+
+test('startup requests native fullscreen once after ready/expand and leaves later resumes alone', () => {
+  const h = harness({ platform: 'ios', isVersionAtLeast: () => true, requestFullscreen() {} });
+  h.env.start(); h.env.start();
+  h.events.get('deactivated')();
+  h.events.get('activated')();
+  h.documentEvents.get('visibilitychange')();
+  h.windowEvents.get('pageshow')({ persisted: true });
+  assert.deepEqual(h.native.filter(([name]) => ['ready', 'expand', 'requestFullscreen'].includes(name)),
+    [['ready'], ['expand'], ['requestFullscreen']]);
+});
+
+test('fullscreen skips unavailable SDKs and an already fullscreen launch without forcing reentry', () => {
+  for (const options of [
+    { isVersionAtLeast: version => version !== '8.0', requestFullscreen() {} },
+    { isVersionAtLeast: () => true },
+    { isVersionAtLeast: () => true, isFullscreen: true, requestFullscreen() {} },
+  ]) {
+    const h = harness({ platform: 'android', ...options });
+    h.env.start();
+    h.env.telegram.isFullscreen = false;
+    h.events.get('activated')?.();
+    h.documentEvents.get('visibilitychange')();
+    assert.equal(h.native.filter(([name]) => name === 'requestFullscreen').length, 0);
+    assert.equal(h.native.filter(([name]) => name === 'expand').length, 1);
+  }
+});
+
+test('an inactive or hidden launch defers its single fullscreen request until foreground', () => {
+  for (const reason of ['inactive', 'hidden']) {
+    const h = harness({ platform: 'ios', isActive: reason !== 'inactive', requestFullscreen() {} });
+    h.doc.hidden = reason === 'hidden';
+    h.env.start();
+    assert.equal(h.native.filter(([name]) => name === 'requestFullscreen').length, 0);
+    h.doc.hidden = false;
+    h.events.get('activated')();
+    h.documentEvents.get('visibilitychange')();
+    assert.equal(h.native.filter(([name]) => name === 'requestFullscreen').length, 1);
+  }
+});
+
+test('a throwing fullscreen API preserves expanded startup and is not retried on resume', () => {
+  const h = harness({ platform: 'ios', requestFullscreen() { throw Error('WebAppMethodUnsupported'); } });
+  assert.doesNotThrow(() => h.env.start());
+  h.events.get('activated')();
+  h.env.start();
+  assert.equal(h.native.filter(([name]) => name === 'ready').length, 1);
+  assert.ok(h.native.some(([name]) => name === 'expand'));
+  assert.equal(h.native.filter(([name]) => name === 'requestFullscreen').length, 1);
+});
+
+test('fullscreen result events resync stable geometry and separate insets without game recovery', () => {
+  const bridge = { platform: 'ios', viewportStableHeight: 640, requestFullscreen() {},
+    safeAreaInset: { top: 0, bottom: 0 }, contentSafeAreaInset: { top: 0, bottom: 0 } };
+  const h = harness(bridge);
+  let resumed = 0; h.env.onResume(() => resumed++);
+  h.env.start();
+  bridge.isFullscreen = true;
+  bridge.viewportStableHeight = 844;
+  bridge.safeAreaInset = { top: 24, bottom: 20 };
+  bridge.contentSafeAreaInset = { top: 16, bottom: 10 };
+  h.events.get('fullscreenChanged')();
+  assert.equal(h.css.get('--app-height'), '844px');
+  assert.equal(h.css.get('--app-safe-top'), '24px');
+  assert.equal(h.css.get('--app-content-safe-top'), '16px');
+  assert.equal(h.css.get('--app-safe-bottom'), '20px');
+  assert.equal(h.css.get('--app-content-safe-bottom'), '10px');
+  assert.equal(h.root.dataset.compactArena, 'false');
+
+  bridge.viewportHeight = 500; bridge.viewportStableHeight = 560;
+  h.events.get('viewportChanged')({ isStateStable: false });
+  assert.equal(h.css.get('--app-height'), '844px');
+  bridge.isFullscreen = false;
+  bridge.safeAreaInset = { top: 0, bottom: 0 };
+  bridge.contentSafeAreaInset = { top: 0, bottom: 0 };
+  h.events.get('fullscreenFailed')({ error: 'UNSUPPORTED' });
+  assert.equal(h.css.get('--app-height'), '560px');
+  assert.equal(h.css.get('--app-safe-top'), '0px');
+  assert.equal(h.css.get('--app-content-safe-bottom'), '0px');
+  assert.equal(h.root.dataset.compactBattle, 'true');
+  assert.equal(resumed, 0);
+  assert.equal(h.native.filter(([name]) => name === 'requestFullscreen').length, 1);
+  assert.ok(h.native.some(([name]) => name === 'expand'));
 });
 
 test('activation and browser resume resync shell and invoke existing state recovery', () => {

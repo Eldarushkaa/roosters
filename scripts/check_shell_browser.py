@@ -19,13 +19,28 @@ from scripts.check_battle_browser import assert_controls
 ROOT = Path(__file__).resolve().parent.parent
 BRIDGE = """
 const callbacks = {}, nativeCalls = [];
+const fullscreenMode = FULLSCREEN_MODE;
 window.Telegram = {WebApp: {
   platform: 'ios', version: '8.0', colorScheme: SCHEME,
   themeParams: {}, viewportStableHeight: innerHeight, viewportHeight: innerHeight,
-  safeAreaInset: {top: 24, bottom: 20, left: 4, right: 6},
-  contentSafeAreaInset: {top: 16, bottom: 10, left: 2, right: 2},
+  safeAreaInset: {top: 0, bottom: 0, left: 0, right: 0},
+  contentSafeAreaInset: {top: 0, bottom: 0, left: 0, right: 0},
+  isFullscreen: fullscreenMode === 'already', isActive: true,
   isVersionAtLeast: () => true,
   ready() { nativeCalls.push(['ready']); }, expand() { nativeCalls.push(['expand']); },
+  requestFullscreen() {
+    nativeCalls.push(['requestFullscreen']);
+    queueMicrotask(() => {
+      if (fullscreenMode === 'failed') {
+        callbacks.fullscreenFailed?.({error: 'UNSUPPORTED'});
+      } else {
+        this.isFullscreen = true;
+        this.safeAreaInset = {top: 24, bottom: 20, left: 4, right: 6};
+        this.contentSafeAreaInset = {top: 16, bottom: 10, left: 2, right: 2};
+        callbacks.fullscreenChanged?.();
+      }
+    });
+  },
   setHeaderColor(c) { nativeCalls.push(['header', c]); },
   setBackgroundColor(c) { nativeCalls.push(['background', c]); },
   setBottomBarColor(c) { nativeCalls.push(['bottom', c]); },
@@ -41,6 +56,10 @@ window.shellTheme = scheme => {
 };
 window.shellCalls = nativeCalls;
 """
+
+
+def bridge_script(scheme, fullscreen_mode='success'):
+    return BRIDGE.replace('SCHEME', json.dumps(scheme)).replace('FULLSCREEN_MODE', json.dumps(fullscreen_mode))
 
 
 def nav_geometry(page, height, inset):
@@ -81,7 +100,7 @@ def exercise(browser, url, clock, artifacts):
                 label = f'{width}x{height}-{"telegram" if telegram else "browser"}-{scheme}'
                 context = browser.new_context(viewport={'width': width, 'height': height}, color_scheme=scheme, reduced_motion='reduce')
                 context.route('https://telegram.org/js/telegram-web-app.js', lambda route: route.fulfill(
-                    status=200, content_type='application/javascript', body=BRIDGE.replace('SCHEME', json.dumps(scheme)) if telegram else ''))
+                    status=200, content_type='application/javascript', body=bridge_script(scheme) if telegram else ''))
                 # Observe the exact media event, excluding independent visibility/
                 # server refreshes Chrome can deliver around emulation commands.
                 context.add_init_script("""
@@ -114,6 +133,13 @@ def exercise(browser, url, clock, artifacts):
                 page.locator('[data-action=close-result]').click()
                 inset = 30 if telegram else 0
                 nav_geometry(page, height, inset)
+                if telegram:
+                    assert page.evaluate('Telegram.WebApp.isFullscreen')
+                    assert page.evaluate("shellCalls.filter(call => call[0] === 'requestFullscreen').length") == 1
+                # Both localized shells must fit the new native fullscreen insets.
+                for language in ['en', 'ru']:
+                    page.locator(f'[data-language="{language}"]').click()
+                    nav_geometry(page, height, inset)
                 page.screenshot(path=str(artifacts / f'{label}-arena.png'))
                 page.locator('.arena-fight').evaluate("node => node.scrollIntoView({block: 'center'})")
                 assert page.evaluate('''() => {
@@ -146,11 +172,32 @@ def exercise(browser, url, clock, artifacts):
                     nav_geometry(page, height, 0)
                     page.evaluate("Telegram.WebApp.safeAreaInset.bottom = 20; shellEmit('safeAreaChanged'); Telegram.WebApp.contentSafeAreaInset.bottom = 10; shellEmit('contentSafeAreaChanged')")
                     nav_geometry(page, height, inset)
+                    # Fullscreen events may arrive independently of viewport or
+                    # inset events. Their current SDK properties still apply.
+                    page.evaluate("""() => {
+                        Telegram.WebApp.isFullscreen = false;
+                        Telegram.WebApp.viewportStableHeight = innerHeight - 80;
+                        Telegram.WebApp.safeAreaInset.bottom = 0;
+                        Telegram.WebApp.contentSafeAreaInset.bottom = 0;
+                        shellEmit('fullscreenChanged');
+                    }""")
+                    nav_geometry(page, height - 80, 0)
+                    page.evaluate("""() => {
+                        Telegram.WebApp.isFullscreen = true;
+                        Telegram.WebApp.viewportStableHeight = innerHeight;
+                        Telegram.WebApp.safeAreaInset.bottom = 20;
+                        Telegram.WebApp.contentSafeAreaInset.bottom = 10;
+                        shellEmit('fullscreenChanged');
+                    }""")
+                    nav_geometry(page, height, inset)
                 page.evaluate('window.scrollTo(0, 0)')
                 battle = command(page, '[data-action=start-bot]', 'battle/start')['state']['battle']
                 clock.value = battle['starts_at']
                 refresh(page)
                 assert_controls(page, label, essential=not telegram, bottom_inset=inset, top_inset=40 if telegram else 0)
+                page.locator('[data-language="en"]').click()
+                assert_controls(page, label + '-en', essential=not telegram, bottom_inset=inset, top_inset=40 if telegram else 0)
+                page.locator('[data-language="ru"]').click()
                 page.screenshot(path=str(artifacts / f'{label}-battle.png'))
                 page.wait_for_load_state('networkidle')
                 # Supporting battle details scroll independently of the tap
@@ -207,12 +254,41 @@ def exercise(browser, url, clock, artifacts):
                     calls = page.evaluate('shellCalls')
                     assert sum(call[0] == 'ready' for call in calls) == 1
                     assert sum(call[0] == 'expand' for call in calls) == 1
+                    assert sum(call[0] == 'requestFullscreen' for call in calls) == 1
                     colors = page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()")
                     for name in ['header', 'background', 'bottom']:
                         assert [call[1] for call in calls if call[0] == name][-1] == colors
                 context.close()
                 print('Passed:', label, flush=True)
     assert not errors, errors
+
+
+def exercise_fullscreen_fallback(browser, url, artifacts):
+    for mode in ['failed', 'already']:
+        context = browser.new_context(viewport={'width': 390, 'height': 844}, reduced_motion='reduce')
+        context.route('https://telegram.org/js/telegram-web-app.js', lambda route: route.fulfill(
+            status=200, content_type='application/javascript', body=bridge_script('dark', mode)))
+        context.add_init_script("localStorage.setItem('rooster.v1.identity', JSON.stringify(%s))" % json.dumps(
+            {'user_id': 'fullscreen-' + mode, 'name': 'Fullscreen fallback'}))
+        context.add_init_script("localStorage.setItem('rooster.v1.guideSeen.v1', '1')")
+        page = context.new_page()
+        errors = []
+        page.on('pageerror', lambda error: errors.append(str(error)))
+        page.goto(url, wait_until='networkidle')
+        expect(page.locator('[data-action=start-free]')).to_be_enabled()
+        nav_geometry(page, 844, 0)
+        # If the user leaves native fullscreen, resume must respect that choice.
+        page.evaluate("Telegram.WebApp.isFullscreen = false; shellEmit('fullscreenChanged'); shellEmit('deactivated')")
+        with page.expect_response(lambda response: response.url.endswith('/api/v1/state')):
+            page.evaluate("shellEmit('activated')")
+        calls = page.evaluate('shellCalls')
+        assert sum(call[0] == 'ready' for call in calls) == 1
+        assert sum(call[0] == 'expand' for call in calls) >= 1
+        assert sum(call[0] == 'requestFullscreen' for call in calls) == (1 if mode == 'failed' else 0)
+        assert not errors, errors
+        page.screenshot(path=str(artifacts / f'fullscreen-{mode}.png'))
+        context.close()
+        print('Passed: fullscreen-' + mode, flush=True)
 
 
 def main():
@@ -234,13 +310,14 @@ def main():
                 browser = playwright.chromium.launch(headless=True, **({'executable_path': str(chrome)} if chrome.exists() else {}))
                 try:
                     exercise(browser, f'http://127.0.0.1:{server.server_port}', clock, args.artifacts_dir)
+                    exercise_fullscreen_fallback(browser, f'http://127.0.0.1:{server.server_port}', args.artifacts_dir)
                 finally:
                     browser.close()
         finally:
             server.shutdown()
             thread.join(timeout=5)
             server.server_close()
-    print('Shell checks passed: 20 size/theme/environment combinations; screenshots:', args.artifacts_dir)
+    print('Shell checks passed: 20 size/theme/environment combinations in RU/EN, fullscreen fallback/already active; screenshots:', args.artifacts_dir)
 
 
 if __name__ == '__main__':

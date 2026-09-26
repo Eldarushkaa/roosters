@@ -194,8 +194,8 @@ class GameService:
             return {"payout_minor": amount}
         if op == "claim/daily":
             self._fields(body, [])
-            if player["daily_at"] and now < player["daily_at"] + 86400:
-                raise GameError("daily_not_ready", "Ежедневная награда ещё восстанавливается.", 409)
+            if player["daily_at"] and now < player["daily_at"] + rules.DAILY_COOLDOWN_SECONDS:
+                raise GameError("daily_not_ready", "Награда ещё восстанавливается.", 409)
             wallet.change(db, pid, rules.DAILY_MINOR, "daily", key, now)
             db.execute("UPDATE players SET daily_at=? WHERE id=?", (now, pid))
             return {"payout_minor": rules.DAILY_MINOR}
@@ -499,8 +499,8 @@ class GameService:
                 "economy": {"first_free_battle_available": not bool(row["first_battle_used"]),
                             "stake_limits": self._stake_limits(row),
                             "passive_available_minor": self._passive(row, now), "daily_reward_minor": rules.DAILY_MINOR,
-                            "daily_available": not row["daily_at"] or now >= row["daily_at"]+86400,
-                            "next_daily_at": row["daily_at"]+86400 if row["daily_at"] else 0,
+                            "daily_available": not row["daily_at"] or now >= row["daily_at"] + rules.DAILY_COOLDOWN_SECONDS,
+                            "next_daily_at": row["daily_at"] + rules.DAILY_COOLDOWN_SECONDS if row["daily_at"] else 0,
                             "upgrade_costs_minor": {slot: rules.upgrade_cost(level) for slot, level in player["gear"].items()},
                             "bot_quotes": [{"stake_minor": stake, "min_payout_minor": rules.bot_payout(stake, player["power"], lower),
                                             "max_payout_minor": rules.bot_payout(stake, player["power"], upper)} for stake in rules.STAKES_MINOR],

@@ -90,7 +90,7 @@ POST принимает JSON-объект. Закрытые методы тре�
     "first_free_battle_available": true,
     "stake_limits": {"min_minor": 1000, "max_minor": 42000, "step_minor": 1},
     "passive_available_minor": 0,
-    "daily_reward_minor": 17000,
+    "daily_reward_minor": 10000,
     "daily_available": true,
     "next_daily_at": 0,
     "upgrade_costs_minor": {"helmet": 8000, "armor": 8000, "sword": 8000},

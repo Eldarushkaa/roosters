@@ -19,7 +19,7 @@ const playerState = (id = 'dev:tester') => ({
   server_time: Date.now() / 1000,
   rules_version: 'v6',
   player: { id, name: 'Игрок', is_dev: id.startsWith('dev:'), balance_minor: 42000, power: 100, breed_id: 'yard', owned_breeds: ['yard'], level: 1, xp_in_level: 0, xp_to_next: 100, wins: 0, losses: 0, battles: 0, pvp_wins: 0, gear: {} },
-  economy: { first_free_battle_available: true, passive_available_minor: 0, daily_reward_minor: 17000, daily_available: true, next_daily_at: 0, upgrade_costs_minor: {}, stake_limits: { min_minor: 1000, max_minor: 42000, step_minor: 1 }, bot_quotes: [1000, 2500, 5000, 10000].map((stake_minor) => ({ stake_minor, min_payout_minor: stake_minor * 1.5, max_payout_minor: stake_minor * 2.5 })), online_quotes: [{ stake_minor: 1000, win_payout_minor: 1900 }, { stake_minor: 2500, win_payout_minor: 4750 }, { stake_minor: 5000, win_payout_minor: 9500 }, { stake_minor: 10000, win_payout_minor: 19000 }] },
+  economy: { first_free_battle_available: true, passive_available_minor: 0, daily_reward_minor: 10000, daily_available: true, next_daily_at: 0, upgrade_costs_minor: {}, stake_limits: { min_minor: 1000, max_minor: 42000, step_minor: 1 }, bot_quotes: [1000, 2500, 5000, 10000].map((stake_minor) => ({ stake_minor, min_payout_minor: stake_minor * 1.5, max_payout_minor: stake_minor * 2.5 })), online_quotes: [{ stake_minor: 1000, win_payout_minor: 1900 }, { stake_minor: 2500, win_payout_minor: 4750 }, { stake_minor: 5000, win_payout_minor: 9500 }, { stake_minor: 10000, win_payout_minor: 19000 }] },
   catalog: { breeds: [{ id: 'yard', name: 'Дворовый', price_minor: 0, power_multiplier: 1, power_multiplier_percent: 100, color: '#f3ad55' }], slots: [], referral: { signup_reward_minor: 30000, battle_reward_minor: 30000, battles_required: 3 }, battle: { duration: 10, roulette_duration: 2, tap_cap: 90, stakes_minor: [1000, 2500, 5000, 10000], bot_power_min_ratio: 0.7, bot_power_max_ratio: 1.4, bot_rtp_min: 0.9, bot_rtp_max: 1.10, pvp_win_multiplier: 1.9, pvp_rtp: 1.2, free_reward_minor: 1500 } },
   presence: { online: 0, searching: 0, development_online: 1 }, history: [], reward_events: [], queue: null, battle: null,
 });
@@ -1362,7 +1362,7 @@ test('legacy pending success text and visible errors follow the selected languag
   });
   env.client.setState(playerState());
   await env.client.sendPending();
-  assert.match(env.client.messageText(env.context.lastNotice.message), /daily reward.*wallet/);
+  assert.match(env.client.messageText(env.context.lastNotice.message), /reward.*wallet/);
   env.client.actualShowNotice({ key: 'notice.retrySafe', params: { message: env.client.errorMessage(env.client.localizedError('error.offline')) } }, { error: true, retry: true });
   const notice = env.document.querySelector('#notice-stack');
   assert.doesNotMatch(notice.innerHTML, /[А-Яа-яЁё]/);

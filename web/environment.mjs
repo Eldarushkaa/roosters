@@ -50,6 +50,7 @@ export function createAppEnvironment(win = window, doc = document) {
   const state = { available, theme: 'light', stableHeight: null, active: telegram?.isActive !== false };
   let compactHeight = 0;
   let started = false;
+  let fullscreenHandled = false;
   let resume = () => {};
   function syncTheme() {
     state.theme = telegram?.colorScheme === 'dark' || (telegram?.colorScheme !== 'light' && media.matches) ? 'dark' : 'light';
@@ -111,10 +112,19 @@ export function createAppEnvironment(win = window, doc = document) {
     set('--app-height', state.stableHeight ? `${height}px`
       : telegram ? 'var(--tg-viewport-stable-height, 100svh)' : '100dvh');
   }
-  function sync() { syncTheme(); syncInsets(); syncViewport(); }
+  function syncGeometry() { syncInsets(); syncViewport(); }
+  function sync() { syncTheme(); syncGeometry(); }
+  function requestInitialFullscreen() {
+    if (!started || fullscreenHandled || !state.active || doc.hidden) return;
+    fullscreenHandled = true;
+    // expand() only maximizes the sheet. Request native fullscreen separately,
+    // once per launch, without overriding a later user exit on resume.
+    if (!telegram?.isFullscreen) call('requestFullscreen', '8.0');
+  }
   function activate() {
     state.active = true;
     sync();
+    requestInitialFullscreen();
     resume();
   }
   root.dataset.telegram = String(available);
@@ -123,6 +133,8 @@ export function createAppEnvironment(win = window, doc = document) {
   on('viewportChanged', syncViewport);
   on('safeAreaChanged', syncInsets, '8.0');
   on('contentSafeAreaChanged', syncInsets, '8.0');
+  on('fullscreenChanged', syncGeometry, '8.0');
+  on('fullscreenFailed', syncGeometry, '8.0');
   on('activated', activate, '8.0');
   on('deactivated', () => { state.active = false; }, '8.0');
   const themeChange = () => { if (!telegram) syncTheme(); };
@@ -140,6 +152,7 @@ export function createAppEnvironment(win = window, doc = document) {
       // The localized loading shell is painted without waiting for authentication.
       call('ready', '6.0');
       call('expand', '6.0');
+      requestInitialFullscreen();
     },
   };
 }

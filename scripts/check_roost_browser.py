@@ -17,7 +17,7 @@ from roosters import create_app
 from roosters import wallet
 from roosters.config import Settings
 from scripts.check_browser import Clock, QuietRequests, check_layout, command, refresh, server_state
-from scripts.check_shell_browser import BRIDGE
+from scripts.check_shell_browser import bridge_script
 
 ROOT = Path(__file__).resolve().parent.parent
 TOKEN = 'roost-test-token'
@@ -32,7 +32,7 @@ def launch_data(clock, player):
 
 def context_for(browser, url, clock, player, width=390, height=844, scheme='dark', language='ru'):
     context = browser.new_context(viewport={'width': width, 'height': height}, color_scheme=scheme, reduced_motion='reduce')
-    bridge = BRIDGE.replace('SCHEME', json.dumps(scheme)) + '''
+    bridge = bridge_script(scheme) + '''
         Telegram.WebApp.initData = LAUNCH;
         window.sharedLinks = [];
         Telegram.WebApp.openTelegramLink = url => sharedLinks.push(url);
@@ -124,7 +124,7 @@ def exercise(browser, url, app, clock, artifacts):
                 page.screenshot(path=str(artifacts / f'{label}-ready.png'), full_page=True)
                 page.screenshot(path=str(artifacts / f'{label}-viewport.png'))
                 result = command(page, '[data-action=claim-daily]', 'claim/daily')
-                assert result['result']['payout_minor'] == 17000
+                assert result['result']['payout_minor'] == 10000
                 expect(page.locator('[data-reward=daily]')).to_have_attribute('data-state', 'claimed')
                 expect(page.locator('[data-action=claim-daily]')).to_be_disabled()
                 assert page.locator('[data-action=claim-daily].ui-primary').count() == 0
@@ -187,7 +187,7 @@ def exercise(browser, url, app, clock, artifacts):
         assert page.locator('.roost-screen .is-error').count() == 0
 
     # A definite rejection retains the numbers and offers a local retry.
-    seed(app, page, daily_at=clock() - 86401)
+    seed(app, page, daily_at=clock() - 10801)
     page.route('**/api/v1/claim/daily', lambda route: route.fulfill(status=409, json={'error': {'code': 'daily_not_ready', 'message': 'raw backend detail'}}))
     page.locator('[data-action=claim-daily]').click()
     expect(page.locator('[data-reward=daily]')).to_have_attribute('data-state', 'error')

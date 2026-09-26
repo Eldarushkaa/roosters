@@ -359,8 +359,15 @@ without accumulating duplicate events. An empty list shows a localized message.
 ## Telegram runtime and browser fallback
 
 The shell initializes before authentication, then calls `ready()` once after the
-localized loading screen is available and `expand()` once. Boot retries and
-resume do not repeatedly expand the app. No fullscreen request is made.
+localized loading screen is available and `expand()` once. It additionally
+requests native fullscreen once with `requestFullscreen()` on Telegram 8.0+
+when that method is available and the app is not already fullscreen. This also
+covers launches through the chat menu or a bot button. An initially hidden or
+inactive launch defers its single attempt until activation. Boot retries and
+later resumes do not repeat the request or override a user's fullscreen exit.
+Older clients, missing methods and native failures keep the expanded fallback.
+`fullscreenChanged` and `fullscreenFailed` resync stable height and separate
+safe/content-safe insets without issuing gameplay commands or rebuilding screens.
 
 `environment.mjs` treats an SDK with an unknown platform and empty launch data as
 a normal browser. Telegram's `colorScheme` and browser `prefers-color-scheme`
