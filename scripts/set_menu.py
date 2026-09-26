@@ -15,7 +15,7 @@ def main() -> int:
         load_env()
         settings = Settings.from_env()
         url = validate_webapp_url(settings.webapp_url)
-        client = TelegramClient(settings.bot_token)
+        client = TelegramClient(settings.bot_token, proxy_url=settings.telegram_proxy_url)
         client.call("setChatMenuButton", {"menu_button": {"type": "web_app", "text": "Арена", "web_app": {"url": url}}})
         client.call(
             "setMyCommands",
@@ -26,7 +26,7 @@ def main() -> int:
             ]},
         )
     except ValueError:
-        logging.error("Check BOT_TOKEN and WEBAPP_URL in .env; a public HTTPS URL is required.")
+        logging.error("Check BOT_TOKEN, WEBAPP_URL and TELEGRAM_PROXY_URL in .env and install requirements.txt.")
         return 2
     except TelegramAPIError as error:
         logging.error("Telegram menu setup failed (API code %s). It is safe to run this command again.", error.code)

@@ -15,7 +15,9 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Callable
+from typing import Any, Callable, Optional
+
+from scripts.telegram_proxy import telegram_opener
 
 LOGGER = logging.getLogger(__name__)
 API_RESPONSE_LIMIT = 1024 * 1024
@@ -34,11 +36,11 @@ class TelegramAPIError(Exception):
 class TelegramClient:
     """Minimal JSON Bot API transport with bounded reads and safe exceptions."""
 
-    def __init__(self, token: str, opener: Callable[..., Any] = urllib.request.urlopen):
+    def __init__(self, token: str, opener: Optional[Callable[..., Any]] = None, *, proxy_url: str = ""):
         if not token:
             raise ValueError("BOT_TOKEN is required.")
         self._base_url = "https://api.telegram.org/bot" + token + "/"
-        self._opener = opener
+        self._opener = opener if opener is not None else telegram_opener(proxy_url)
 
     def call(self, method: str, payload: dict, timeout: int = 35) -> Any:
         # Method names are internal constants, never derived from chat messages.
@@ -212,9 +214,10 @@ def main() -> int:
     try:
         load_env()
         settings = Settings.from_env()
-        poller = Poller(TelegramClient(settings.bot_token), settings.webapp_url, settings.bot_username)
+        client = TelegramClient(settings.bot_token, proxy_url=settings.telegram_proxy_url)
+        poller = Poller(client, settings.webapp_url, settings.bot_username)
     except ValueError:
-        LOGGER.error("Check BOT_TOKEN and WEBAPP_URL in .env; use a valid HTTPS URL or leave WEBAPP_URL empty.")
+        LOGGER.error("Check BOT_TOKEN, WEBAPP_URL and TELEGRAM_PROXY_URL in .env and install requirements.txt.")
         return 2
     LOGGER.info("Telegram long polling started (%s). Press Ctrl+C to stop.",
                 "Mini App enabled" if poller.webapp_url else "bot only; Mini App URL not configured")

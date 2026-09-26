@@ -1,6 +1,6 @@
 """Explicit environment configuration; imports have no side effects."""
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -27,6 +27,7 @@ class Settings:
     database_path: str = "data/roosters.sqlite3"
     host: str = "127.0.0.1"
     port: int = 8000
+    telegram_proxy_url: str = field(default="", repr=False)
 
     @classmethod
     def from_env(cls):
@@ -34,6 +35,7 @@ class Settings:
         return cls(app_env=os.getenv("APP_ENV", "development"),
                    allow_dev_auth=os.getenv("ALLOW_DEV_AUTH", "false").lower() == "true",
                    bot_token=os.getenv("BOT_TOKEN", ""), bot_username=os.getenv("BOT_USERNAME", "").lstrip("@"),
+                   telegram_proxy_url=os.getenv("TELEGRAM_PROXY_URL", ""),
                    webapp_url=os.getenv("WEBAPP_URL", ""), secret_key=os.getenv("SECRET_KEY", ""),
                    database_path=os.getenv("DATABASE_PATH", "data/roosters.sqlite3"),
                    host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", "8000")))
@@ -51,4 +53,3 @@ class Settings:
             url = urlparse(self.webapp_url)
             if url.scheme != "https" or not url.hostname or url.hostname.endswith(".example"):
                 raise ValueError("Production WEBAPP_URL must be your public HTTPS URL")
-
