@@ -5,7 +5,7 @@ import itertools
 import json
 import unittest
 
-from roosters import rules, rules_v4, rules_v5
+from roosters import rules, rules_v4, rules_v5, rules_v6
 
 
 class ProgressionTests(unittest.TestCase):
@@ -88,13 +88,16 @@ class CatalogTests(unittest.TestCase):
         # Fractions remain internal; this is directly serializable by the API.
         self.assertEqual(json.loads(json.dumps(catalog)), catalog)
         self.assertEqual(catalog["coin_scale"], 100)
+        self.assertEqual(catalog["referral"], {
+            "signup_reward_minor": 30000, "battle_reward_minor": 30000, "battles_required": 3,
+        })
         self.assertEqual([breed["price_minor"] for breed in catalog["breeds"]], [0, 50000, 180000, 600000])
         self.assertTrue(all("price" not in breed for breed in catalog["breeds"]))
         self.assertEqual(catalog["battle"], {
             "duration": 10, "roulette_duration": 2, "tap_cap": 90,
             "tap_bonus_cap": 0.2, "stakes_minor": [1000, 2500, 5000, 10000],
             "bot_power_min_ratio": 0.7, "bot_power_max_ratio": 1.4,
-            "bot_rtp_min": 0.9, "bot_rtp_max": 1.1, "pvp_win_multiplier": 1.9,
+            "bot_rtp_min": 0.9, "bot_rtp_max": 1.2, "pvp_win_multiplier": 2.4, "pvp_rtp": 1.2,
             "free_reward_minor": 1500,
         })
 
@@ -117,17 +120,17 @@ class BotProbabilityTests(unittest.TestCase):
             base = Fraction(power, power + opponent)
             for taps in range(101):
                 chance = rules.bot_probability(power, opponent, taps)
-                self.assertEqual(chance, base * Fraction(405 + min(taps, 90), 405))
+                self.assertEqual(chance, base * Fraction(270 + min(taps, 90), 270))
                 self.assertGreater(chance, 0)
                 self.assertLess(chance, 1)
-            self.assertEqual(rules.bot_probability(power, opponent, 100000), base * Fraction(11, 9))
+            self.assertEqual(rules.bot_probability(power, opponent, 100000), base * Fraction(4, 3))
 
     def test_bot_quote_has_exact_endpoints_and_includes_the_stake(self):
         for stake in (1000, 2500, 5000, 10000):
             payout = rules.bot_payout(stake, 100, 100)
             self.assertEqual(payout, stake * 9 // 5)
             self.assertEqual(rules.bot_probability(100, 100, 0) * payout / stake, Fraction(9, 10))
-            self.assertEqual(rules.bot_probability(100, 100, 90) * payout / stake, Fraction(11, 10))
+            self.assertEqual(rules.bot_probability(100, 100, 90) * payout / stake, Fraction(6, 5))
         self.assertEqual(rules.bot_payout(1000, 100, 70), 1530)
         self.assertEqual(rules.bot_payout(1000, 100, 140), 2160)
 
@@ -140,19 +143,28 @@ class BotProbabilityTests(unittest.TestCase):
             for opponent in range(low, high + 1):
                 p0 = rules.bot_probability(power, opponent, 0)
                 p90 = rules.bot_probability(power, opponent, 90)
-                for stake in rules.STAKES_MINOR:
+                for stake in (*rules.STAKES_MINOR, 1001, 12345):
                     payout = rules.bot_payout(stake, power, opponent)
                     self.assertIs(type(payout), int)
                     rtp0 = p0 * payout / stake
                     rtp90 = p90 * payout / stake
                     self.assertLessEqual(rtp0, Fraction(9, 10))
                     self.assertGreater(rtp0, Fraction(9, 10) - p0 / stake)
-                    self.assertLessEqual(rtp90, Fraction(11, 10))
-                    self.assertGreater(rtp90, Fraction(11, 10) - p90 / stake)
-                    self.assertEqual(rtp90, rtp0 * Fraction(11, 9))
+                    self.assertLessEqual(rtp90, Fraction(6, 5))
+                    self.assertGreater(rtp90, Fraction(6, 5) - p90 / stake)
+                    self.assertEqual(rtp90, rtp0 * Fraction(4, 3))
 
-    def test_v4_bot_curve_remains_at_105_percent_and_v5_reaches_110(self):
-        for engine, maximum in ((rules_v4, Fraction(21, 20)), (rules, Fraction(11, 10))):
+    def test_training_rtp_progression_and_equal_power_win_chance(self):
+        prize = rules.bot_payout(1000, 100, 100)
+        for taps, target in ((0, Fraction(9, 10)), (30, Fraction(1)),
+                             (45, Fraction(21, 20)), (60, Fraction(11, 10)),
+                             (90, Fraction(6, 5)), (91, Fraction(6, 5))):
+            self.assertEqual(rules.bot_probability(100, 100, taps) * prize / 1000, target)
+        self.assertEqual(rules.bot_probability(100, 100, 90), Fraction(2, 3))
+
+    def test_historical_bot_curves_remain_frozen_and_v7_reaches_120(self):
+        for engine, maximum in ((rules_v4, Fraction(21, 20)), (rules_v5, Fraction(11, 10)),
+                                (rules_v6, Fraction(11, 10)), (rules, Fraction(6, 5))):
             prize = engine.bot_payout(1000, 100, 100)
             self.assertEqual(prize, 1800)
             self.assertEqual(engine.bot_probability(100, 100, 0) * prize / 1000, Fraction(9, 10))
@@ -230,26 +242,32 @@ class PvPProbabilityTests(unittest.TestCase):
 
 
 class PayoutTests(unittest.TestCase):
-    def test_pvp_pays_nineteen_tenths_of_own_stake(self):
-        for stake, prize in ((1000, 1900), (2500, 4750), (5000, 9500), (10000, 19000)):
-            self.assertEqual(rules.online_payout(stake), prize)
-            self.assertEqual(Fraction(prize, stake), Fraction(19, 10))
-            self.assertEqual(prize - stake, 9 * stake // 10)
+    def test_pvp_equal_odds_quote_and_constant_personal_return(self):
+        for stake in (*rules.STAKES_MINOR, 1001, 12345, rules.MAX_STAKE_MINOR):
+            self.assertEqual(rules.online_payout(stake), 12 * stake // 5)
+            for power_a, power_b, taps_a, taps_b in itertools.product(
+                    (100, 731), (100, 731), (0, 45, 90), (0, 45, 90)):
+                chance = rules.win_probability(power_a, power_b, taps_a, taps_b)
+                prize = rules.online_payout(stake, chance)
+                rtp = chance * prize / stake
+                self.assertLessEqual(rtp, Fraction(6, 5))
+                self.assertGreater(rtp, Fraction(6, 5) - chance / stake)
+                self.assertLessEqual(prize, rules.MAX_SAFE_INTEGER)
 
-    def test_equal_stakes_still_have_ninety_five_percent_aggregate_return(self):
-        for stake, chance in itertools.product(rules.STAKES_MINOR,
-                                              (Fraction(1, 10), Fraction(1, 2), Fraction(9, 10))):
-            prize = rules.online_payout(stake)
-            return_a = chance * prize
-            return_b = (1 - chance) * prize
-            self.assertEqual((return_a + return_b) / (2 * stake), Fraction(19, 20))
+    def test_pvp_taps_shift_odds_and_prize_while_preserving_expectation(self):
+        no_taps = rules.win_probability(100, 100, 0, 0)
+        more_taps = rules.win_probability(100, 100, 90, 0)
+        self.assertGreater(more_taps, no_taps)
+        self.assertEqual(rules.online_payout(1000, no_taps), 2400)
+        self.assertEqual(rules.online_payout(1000, more_taps), 2200)
+        self.assertEqual(rules.online_payout(1000, 1 - more_taps), 2640)
+        self.assertEqual(more_taps * 2200 / 1000, Fraction(6, 5))
+        self.assertEqual((1 - more_taps) * 2640 / 1000, Fraction(6, 5))
 
-    def test_pvp_personal_expectation_scales_with_win_probability(self):
-        for stake, chance in itertools.product(rules.STAKES_MINOR,
-                                              (Fraction(1, 10), Fraction(1, 2), Fraction(9, 10))):
-            expected_gross = chance * rules.online_payout(stake)
-            self.assertEqual(expected_gross / stake, chance * Fraction(19, 10))
-            self.assertEqual(expected_gross - stake, stake * (chance * Fraction(19, 10) - 1))
+    def test_pvp_probability_must_be_exact_and_bounded(self):
+        for chance in (None, True, 0.5, 0, 1, Fraction(1, 100), Fraction(99, 100)):
+            with self.assertRaises(ValueError):
+                rules.online_payout(1000, chance)
 
     def test_only_supported_integer_stakes_can_produce_prizes(self):
         for stake in (0, -1000, True, 1000.0, "1000", None, 999, rules.MAX_STAKE_MINOR + 1):
@@ -260,7 +278,7 @@ class PayoutTests(unittest.TestCase):
 
     def test_custom_stakes_floor_exact_prizes_and_keep_json_integers_safe(self):
         for stake in (1001, 12345, 42000, 100000, rules.MAX_STAKE_MINOR):
-            self.assertEqual(rules.online_payout(stake), 19 * stake // 10)
+            self.assertEqual(rules.online_payout(stake), 12 * stake // 5)
             for opponent in (70, 100, 140):
                 prize = rules.bot_payout(stake, 100, opponent)
                 self.assertEqual(prize, stake * 9 * (100 + opponent) // 1000)

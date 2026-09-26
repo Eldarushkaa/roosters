@@ -11,6 +11,7 @@ import { createAppEnvironment } from './environment.mjs';
 import { icon, iconText } from './icons.mjs';
 import { createFeedback } from './feedback.mjs';
 import { createGuide } from './guide.mjs';
+import { renderRooster, roosterBattleFrame } from './rooster-art.mjs';
 
 const i18n = createI18n({
   getItem: (key) => localStorage.getItem(key),
@@ -65,6 +66,7 @@ let lastPoll = 0;
 let lastPresence = 0;
 let lastLeaderboard = 0;
 let noticeTimer;
+let commandRetryTimer;
 let battleBuffer = 0;
 let bufferedBattleId = null;
 let leaderboard = null;
@@ -94,6 +96,8 @@ const seenResultToasts = new Map();
 let resultToast = null;
 let resultToastUntil = 0;
 let resultToastTimer = null;
+let resultToastRenderKey = null;
+let resultReturnBattleId = null;
 
 const guide = createGuide({
   overlay: $('#guide-overlay'),
@@ -109,9 +113,20 @@ const guide = createGuide({
 function renderGuideContent() {
   const rules = state.catalog.battle;
   const language = i18n.getLanguage();
-  const steps = [['bot', 'training'], ['power', 'taps'], ['gear', 'gear'], ['swords', 'online']];
-  return `<header class="guide-header"><div><span class="eyebrow">${tr('guide.eyebrow')}</span><h2 id="guide-title" class="ui-title">${tr('guide.title')}</h2></div><button type="button" class="ui-button guide-close" data-action="close-guide" data-focus="guide-close" aria-label="${tr('guide.close')}">${icon('close')}</button></header>
-    <div class="guide-content" tabindex="0" data-focus="guide-content" role="region" aria-labelledby="guide-title"><ol class="guide-steps">${steps.map(([symbol, key]) => `<li><span class="guide-step-icon ui-badge" aria-hidden="true">${icon(symbol)}</span><div><h3>${tr(`guide.${key}Title`)}</h3><p>${tr(`guide.${key}Body`, { taps: fmt(rules.tap_cap), seconds: fmt(rules.duration) })}</p></div></li>`).join('')}</ol><p class="guide-tip">${icon('roost')}<span>${tr('guide.tip')}</span></p></div>
+  const coach = '<img class="guide-coach" src="/static/assets/guide/rooster-coach.webp" width="640" height="534" alt="">';
+  const fighter = '<img class="guide-fighter" src="/static/assets/arena/rooster-hero.webp" width="1254" height="1254" alt="">';
+  // Illustrations are presentation only: no stake selectors or game commands.
+  const art = {
+    stake: `<div class="guide-coins">${icon('coin')}${icon('coin')}${icon('coin')}</div><span class="guide-choice">${icon('check')}</span>`,
+    training: `${fighter}<span class="guide-versus ui-display">VS</span>${icon('bot')}`,
+    taps: `<span class="guide-fight-label">${icon('swords')}${tr('guide.fight')}</span>${icon('power')}`,
+    online: `${fighter}<span class="guide-versus ui-display">VS</span><span class="guide-rival">${fighter}</span>`,
+    gear: `${coach}<span class="guide-equipment"><span>${icon('swords')}</span><span>${icon('gear')}</span><span>${icon('feather')}</span></span>`,
+    rewards: `${coach}<img class="guide-chest" src="/static/assets/guide/reward-chest.webp" width="480" height="499" alt="">`,
+  };
+  const steps = ['stake', 'training', 'taps', 'online', 'gear', 'rewards'];
+  return `<header class="guide-header"><div><h2 id="guide-title" class="ui-title">${tr('guide.title')}</h2><span class="guide-subtitle ui-display">${tr('guide.eyebrow')}</span></div><button type="button" class="ui-button guide-close" data-action="close-guide" data-focus="guide-close" aria-label="${tr('guide.close')}">${icon('close')}</button></header>
+    <div class="guide-content" tabindex="0" data-focus="guide-content" role="region" aria-labelledby="guide-title"><div class="guide-intro"><div class="guide-mascot" aria-hidden="true">${coach}</div><p class="guide-speech">${tr('guide.motto')}</p></div><ol class="guide-steps">${steps.map((key, index) => `<li class="guide-card guide-card-${key}"><div class="guide-card-copy"><span class="guide-number ui-display" aria-hidden="true">${index + 1}</span><div><h3 class="ui-title">${tr(`guide.${key}Title`)}</h3><p>${tr(`guide.${key}Body`, { taps: fmt(rules.tap_cap), seconds: fmt(rules.duration) })}</p></div></div><div class="guide-art" aria-hidden="true">${art[key]}</div></li>`).join('')}</ol><p class="guide-details">${tr('guide.details', { taps: fmt(rules.tap_cap), seconds: fmt(rules.duration) })}</p><p class="guide-tip">${icon('power')}<span>${tr('guide.tip')}</span></p></div>
     <footer class="guide-footer"><div class="language-switch ui-segmented-compact" role="group" aria-label="${tr('shell.language')}">${['ru', 'en'].map(value => `<button type="button" class="ui-button" data-language="${value}" data-focus="guide-language-${value}" lang="${value}" aria-pressed="${language === value}">${value.toUpperCase()}</button>`).join('')}</div><button type="button" class="ui-button ui-primary" data-action="close-guide" data-focus="guide-done">${tr('guide.done')}</button></footer>`;
 }
 
@@ -126,15 +141,21 @@ function closeResultToast() {
   clearTimeout(resultToastTimer);
   resultToastTimer = null;
   resultToast = null;
+  resultToastRenderKey = null;
   const toast = $('#battle-result-toast');
-  if (toast?.contains?.(document.activeElement)) main.focus({ preventScroll: true });
+  if (toast?.contains?.(document.activeElement)) {
+    const trigger = [...document.querySelectorAll('[data-action="open-result"]')]
+      .find(node => node.dataset.battleId === resultReturnBattleId);
+    (trigger || main).focus({ preventScroll: true });
+  }
+  resultReturnBattleId = null;
   if (toast) toast.hidden = true;
 }
 
 function acceptResultToast(next) {
   const completed = next.battle?.status === 'finished' && next.battle.result ? next.battle
     : next.history?.find(item => item.status === 'finished' && item.result);
-  if (state?.player.id !== next.player.id) closeResultToast();
+  if (state?.player.id !== next.player.id || next.battle?.status === 'active' || next.queue) closeResultToast();
   if (!completed) return;
   const key = `resultToast.${next.player.id}`;
   if (seenResultToasts.get(next.player.id) === completed.id || storage.get(key) === completed.id) return;
@@ -144,25 +165,46 @@ function acceptResultToast(next) {
   if (next.battle?.status === 'active' || next.queue) return;
   closeResultToast();
   resultToast = completed;
-  resultToastUntil = Date.now() + 4000;
-  resultToastTimer = setTimeout(() => { closeResultToast(); syncGuide(); }, 4000);
+  resultToastUntil = completed.opponent?.is_bot === false ? Infinity : Date.now() + 4000;
+  if (completed.opponent?.is_bot !== false) resultToastTimer = setTimeout(() => { closeResultToast(); syncGuide(); }, 4000);
+}
+
+function renderTapAnalysis(battle) {
+  if (battle.opponent?.is_bot !== false) return '';
+  const percent = value => Number.isFinite(value) ? `${fmt(Math.round(value * 10000) / 100)}%` : '—';
+  const rows = ['you', 'opponent'].map(side => {
+    const fighter = battle[side] || {};
+    const stats = battle.tap_analysis?.[side];
+    const change = Number.isFinite(stats?.change) ? Math.round(stats.change * 10000) / 100 : null;
+    const delta = change === null ? '—' : `${change > 0 ? '+' : change < 0 ? '−' : ''}${fmt(Math.abs(change))}`;
+    return `<tr><th scope="row"><span>${tr(side === 'you' ? 'result.you' : 'result.opponent')}</span><strong>${escapeHTML(fighterName(fighter))}</strong></th><td data-label="${tr('result.taps')}">${Number.isFinite(fighter.taps) ? fmt(fighter.taps) : '—'}</td><td data-label="${tr('result.oddsPath')}"><span class="result-chance-path">${percent(stats?.initial_probability)} <span aria-hidden="true">→</span> ${percent(stats?.final_probability)}</span><span class="result-chance-change" data-tone="${change > 0 ? 'success' : change < 0 ? 'error' : 'neutral'}">${tr('result.chanceChange', { delta })}</span></td></tr>`;
+  }).join('');
+  return `<div class="result-analysis"><h3 class="ui-title">${tr('result.analysisTitle')}</h3><p class="ui-muted">${tr('result.analysisNote')}</p><table role="table"><thead><tr><th scope="col">${tr('result.fighter')}</th><th scope="col">${tr('result.taps')}</th><th scope="col">${tr('result.oddsPath')}</th></tr></thead><tbody>${rows}</tbody></table>${!battle.tap_analysis ? `<p class="ui-muted">${tr('result.analysisUnavailable')}</p>` : ''}</div>`;
 }
 
 function renderResultToast() {
   const toast = $('#battle-result-toast');
   if (!toast || !resultToast) return;
   if (Date.now() >= resultToastUntil) { closeResultToast(); return; }
+  const renderKey = `${resultToast.id}:${i18n.getLanguage()}`;
+  if (resultToastRenderKey === renderKey) return;
+  resultToastRenderKey = renderKey;
+  const focused = toast.contains?.(document.activeElement);
+  const scrollTop = toast.scrollTop;
   const result = resultToast.result;
+  const timed = Number.isFinite(resultToastUntil);
   toast.hidden = false;
   toast.classList.add('ui-result');
   toast.classList.toggle('loss', !result.won);
   toast.dataset.tone = result.won ? 'success' : 'error';
-  toast.innerHTML = `<button type="button" class="result-toast-close ui-button ui-accent" data-action="close-result" aria-label="${tr('result.close')}"><svg class="result-close-timer" viewBox="0 0 44 44" aria-hidden="true"><circle class="result-close-track" cx="22" cy="22" r="19"/><circle id="result-close-progress" cx="22" cy="22" r="19" pathLength="100"/></svg>${icon('close')}</button><div class="result-toast-heading ui-result-heading"><span class="result-toast-mark" aria-hidden="true">${icon(result.won ? 'trophy' : 'feather')}</span><h2 class="ui-outcome">${tr(result.won ? 'common.win' : 'common.loss')}</h2></div><strong class="result-toast-net ui-net" data-tone="${result.net_minor < 0 ? 'error' : 'success'}">${rich('result.net', { amount: signedMoney(result.net_minor) })}</strong><p class="result-toast-details"><span>${tr('result.payout', { amount: money(result.payout_minor) })}</span><span>${tr('result.xp', { amount: fmt(result.xp) })}</span></p><small class="ui-muted">${tr('result.autoClose')}</small>`;
+  toast.innerHTML = `<button type="button" class="result-toast-close ui-button ui-accent" data-action="close-result" aria-label="${tr('result.close')}">${timed ? '<svg class="result-close-timer" viewBox="0 0 44 44" aria-hidden="true"><circle class="result-close-track" cx="22" cy="22" r="19"/><circle id="result-close-progress" cx="22" cy="22" r="19" pathLength="100"/></svg>' : ''}${icon('close')}</button><div class="result-toast-heading ui-result-heading"><span class="result-toast-mark" aria-hidden="true">${icon(result.won ? 'trophy' : 'feather')}</span><h2 class="ui-outcome">${tr(result.won ? 'common.win' : 'common.loss')}</h2></div><strong class="result-toast-net ui-net" data-tone="${result.net_minor < 0 ? 'error' : 'success'}">${rich('result.net', { amount: signedMoney(result.net_minor) })}</strong><p class="result-toast-details"><span>${tr('result.payout', { amount: money(result.payout_minor) })}</span><span>${tr('result.xp', { amount: fmt(result.xp) })}</span></p>${renderTapAnalysis(resultToast)}<small class="ui-muted">${tr(timed ? 'result.autoClose' : 'result.saved')}</small>`;
+  toast.scrollTop = scrollTop || 0;
+  if (focused) toast.querySelector('[data-action="close-result"]')?.focus({ preventScroll: true });
   updateResultToastTimer();
 }
 
 function updateResultToastTimer() {
-  if (!resultToast) return;
+  if (!resultToast || !Number.isFinite(resultToastUntil)) return;
   if (Date.now() >= resultToastUntil) { closeResultToast(); syncGuide(); return; }
   const progress = $('#result-close-progress');
   if (progress) progress.style.strokeDashoffset = String(100 * (1 - (resultToastUntil - Date.now()) / 4000));
@@ -236,9 +278,9 @@ function messageText(message) {
   return t(message.key, params);
 }
 
-async function request(path, { body, key, auth = true, retryAuth = true } = {}) {
+async function request(path, { body, key, auth = true, retryAuth = true, timeoutMs = 12000 } = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 12000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(API + path, {
       method: body === undefined ? 'GET' : 'POST',
@@ -256,7 +298,7 @@ async function request(path, { body, key, auth = true, retryAuth = true } = {}) 
         error.keepPending = true;
         throw error;
       }
-      return request(path, { body, key, auth, retryAuth: false });
+      return request(path, { body, key, auth, retryAuth: false, timeoutMs });
     }
     const payload = await response.json().catch(() => null);
     if (!response.ok) throw localizedError(i18n.errorKey(payload?.error?.code), response.status, payload?.error?.code, { status: response.status });
@@ -340,6 +382,7 @@ async function mutate(path, body = {}, options = {}) {
 
 async function sendPending() {
   if (busy || !pending || !state) return false;
+  clearTimeout(commandRetryTimer);
   if (pending.owner !== state.player.id) {
     pending = null;
     storage.remove('pending');
@@ -355,7 +398,10 @@ async function sendPending() {
   stateVersion += 1;
   render();
   try {
-    const response = await request(command.path, { body: command.body, key: command.key });
+    // A general 12-second timeout can consume an entire 10-second fight. A
+    // timed-out batch stays immutable and is replayed with the original UUID.
+    const combatTraffic = command.path === '/battle/tap' || (command.path === '/presence' && activeBattle());
+    const response = await request(command.path, { body: command.body, key: command.key, timeoutMs: combatTraffic ? 2500 : 12000 });
     if (!response.state?.player || !response.state?.catalog) throw localizedError('error.incomplete_response');
     pending = null;
     storage.remove('pending');
@@ -385,6 +431,14 @@ async function sendPending() {
       await refreshState();
     } else {
       showNotice({ key: 'notice.retrySafe', params: { message: errorMessage(error) } }, { error: true, retry: true });
+      // Keep ordinary economic actions on their explicit recovery path. During
+      // combat, recover transient transport failures without blocking input.
+      if (error.uncertain && !error.keepPending && (command.path === '/battle/tap' || (command.path === '/presence' && activeBattle()))) {
+        const delay = Math.min(500 * 2 ** Math.min(command.attempts - 1, 2), 2000);
+        commandRetryTimer = setTimeout(() => {
+          if (pending === command && !document.hidden) return sendPending();
+        }, delay);
+      }
     }
     render();
     return false;
@@ -459,6 +513,11 @@ function renderBootFailure() {
 function now() { return (Date.now() + serverOffset) / 1000; }
 function blocked() { return busy || Boolean(pending); }
 function activeBattle() { return state?.battle?.status === 'active'; }
+function battleInputBlocked() {
+  if (!pending || busy) return false;
+  return pending.path !== '/presence'
+    && !(pending.path === '/battle/tap' && pending.body.battle_id === state?.battle?.id);
+}
 function lockedGear() { return activeBattle() || Boolean(state?.queue); }
 function breedName(id) { return i18n.has(`breed.${id}.name`) ? t(`breed.${id}.name`) : state?.catalog.breeds.find((item) => item.id === id)?.name || t('common.rooster'); }
 function modeName(mode) { return t(i18n.has(`mode.${mode}`) ? `mode.${mode}` : 'mode.online'); }
@@ -513,7 +572,7 @@ function render() {
   document.querySelectorAll('[data-tab]').forEach((button) => { const selected = button.dataset.tab === tab; button.classList.toggle('active', selected); selected ? button.setAttribute('aria-current', 'page') : button.removeAttribute('aria-current'); });
   const ongoing = tab !== 'arena' && (activeBattle() || state.queue) ? `<div class="context-banner ui-status"><span>${rich(activeBattle() ? 'context.battle' : 'context.queue')}</span><button class="ui-button" type="button" data-action="go-arena">${rich('context.arena')}</button></div>` : '';
   if (arenaHome) ensureStakeQuote();
-  renderKeepingStakeRange(ongoing + ({ arena: renderArena, gear: renderGear, roost: renderRoost, leaderboard: renderLeaderboard })[tab]());
+  renderKeepingPrimaryControl(ongoing + ({ arena: renderArena, gear: renderGear, roost: renderRoost, leaderboard: renderLeaderboard })[tab](), Boolean(keepFighters));
   if (keepFighters) $('.fighters').replaceWith(keepFighters);
   localizeFighters();
   if (focused) [...main.querySelectorAll('[data-focus]')].find((element) => element.dataset.focus === focused)?.focus({ preventScroll: true });
@@ -525,16 +584,18 @@ function render() {
   syncGuide();
 }
 
-/** Keep the native range and its ancestors connected during drag and polling.
- * Removing and reinserting the same input would still cancel a touch gesture.
- * All siblings are rendered normally; only this control's ancestor path stays.
+/** Keep the active input and its ancestors connected during state updates.
+ * Removing/reinserting even the same button cancels a phone's unfinished tap.
+ * Preserve its text children too: the touch target may be the nested label.
+ * The same path preservation protects the Arena stake slider while dragging.
  */
-function renderKeepingStakeRange(markup) {
-  const current = $('#arena-stake-range');
+function renderKeepingPrimaryControl(markup, keepBattle = false) {
+  const selector = keepBattle ? '[data-action="battle-tap"]' : '#arena-stake-range';
+  const current = $(selector);
   if (!current) { main.innerHTML = markup; return; }
   const template = document.createElement('template');
   template.innerHTML = markup;
-  const next = template.content.querySelector('#arena-stake-range');
+  const next = template.content.querySelector(selector);
   if (!next) { main.innerHTML = markup; return; }
   const path = (node, root) => {
     const nodes = [];
@@ -562,7 +623,12 @@ function renderKeepingStakeRange(markup) {
     parent = kept;
     replacement = fresh;
   }
-  if (current.value !== next.value) current.value = next.value;
+  if (keepBattle) {
+    // updateTimers owns the title and its phase/language cache. Do not overwrite
+    // it with the template's placeholder while retaining that cache attribute.
+    const hint = current.querySelector('span'), nextHint = next.querySelector('span');
+    if (hint.textContent !== nextHint.textContent) hint.textContent = nextHint.textContent;
+  } else if (current.value !== next.value) current.value = next.value;
 }
 
 function localizeFighters() {
@@ -575,7 +641,7 @@ function localizeFighters() {
     if (role) role.textContent = t(side === 'you' ? 'battle.yourFighter' : item.is_bot ? 'battle.bot' : 'battle.player');
     if (power) power.textContent = side === 'opponent' && now() < state.battle.starts_at && state.battle.roulette ? '—' : fmt(item.power);
   }
-  for (const svg of document.querySelectorAll('.fighters svg[role="img"]')) svg.setAttribute('aria-label', t('a11y.rooster'));
+  for (const art of document.querySelectorAll('.fighters .rooster-art[role="img"]')) art.setAttribute('aria-label', t('a11y.rooster'));
 }
 
 function stakeLimits() {
@@ -692,12 +758,12 @@ function renderModeHelp() {
   const payout = quote ? (bot ? `${money(quote.min_payout_minor)}–${money(quote.max_payout_minor)}` : money(quote.win_payout_minor)) : '—';
   return `<section id="arena-mode-help" class="arena-mode-help ui-panel ui-panel-inset" aria-labelledby="arena-help-title">
     <div class="arena-help-heading"><h3 id="arena-help-title" class="ui-title">${tr(bot ? 'arena.botTitle' : 'arena.onlineTitle')}</h3><button type="button" class="ui-button" data-action="close-mode-help" data-focus="close-mode-help" aria-label="${tr('arena.closeHelp')}">${icon('close')}</button></div>
-    <div class="arena-risk" aria-live="polite"><div><span>${tr('arena.lossLabel')}</span><strong>−${money(stake)} ${coin()}</strong></div><div><span>${tr('arena.winPayoutLabel')}</span><strong>${payout} ${coin()}</strong></div></div>
+    <div class="arena-risk" aria-live="polite"><div><span>${tr('arena.lossLabel')}</span><strong>−${money(stake)} ${coin()}</strong></div><div><span>${tr(bot ? 'arena.winPayoutLabel' : 'arena.equalOddsPayout')}</span><strong>${payout} ${coin()}</strong></div></div>
     <p>${tr(bot ? 'arena.botQuoteNote' : 'arena.onlineQuoteNote')}</p>
     <p>${tr(bot ? 'arena.botBody' : 'arena.onlineBody', { min: fmt(Math.round(rules.bot_power_min_ratio * 100)), max: fmt(Math.round(rules.bot_power_max_ratio * 100)) })}</p>
     ${!bot ? `<p>${tr('arena.onlineDisclosure', { multiplier: fmt(rules.pvp_win_multiplier), searching: fmt(state.presence.searching) })}</p>` : ''}
     <p>${tr('arena.helpTaps', { seconds: fmt(rules.duration), taps: fmt(rules.tap_cap) })}</p>
-    <p>${tr(bot ? 'arena.helpBot' : 'arena.helpOnline', { min: fmt(Math.round(rules.bot_rtp_min * 100)), max: fmt(Math.round(rules.bot_rtp_max * 100)), taps: fmt(rules.tap_cap) })}</p>
+    <p>${tr(bot ? 'arena.helpBot' : 'arena.helpOnline', { min: fmt(Math.round(rules.bot_rtp_min * 100)), max: fmt(Math.round(rules.bot_rtp_max * 100)), taps: fmt(rules.tap_cap), rtp: fmt(Math.round(rules.pvp_rtp * 100)), factor: fmt(rules.pvp_rtp) })}</p>
   </section>`;
 }
 
@@ -712,7 +778,7 @@ function closeModeHelp() {
 function renderArenaScene(player, onboarding = false) {
   return `<section class="${onboarding ? 'hero ' : ''}arena-scene arena-fighter" aria-label="${tr('shell.yourFighter')}">
     <img class="arena-scene-background" src="/static/assets/arena/arena-background.webp" alt="" aria-hidden="true" width="1536" height="1024" fetchpriority="high">
-    <img class="arena-scene-hero" src="/static/assets/arena/rooster-hero.webp" alt="${tr('a11y.rooster')}" width="1254" height="1254" fetchpriority="high" draggable="false">
+    ${renderRooster(player, { label: t('a11y.rooster'), className: 'arena-scene-hero', priority: true })}
     <div class="arena-fighter-identity">
       <h1 class="arena-nameplate ui-title">${escapeHTML(breedName(player.breed_id))}</h1>
       <div class="arena-fighter-stats ui-panel ui-panel-inset"><p><span>${tr('common.level', { level: fmt(player.level) })}</span><span>${tr('arena.fighterPower', { power: fmt(player.power) })}</span></p>
@@ -773,9 +839,10 @@ function renderQueue() {
 function renderBattle(battle) {
   const preparing = now() < battle.starts_at;
   const roulette = battle.mode === 'bot' && battle.roulette;
+  const frame = roosterBattleFrame([battle.you, battle.opponent]);
   const fighter = (item, mine) => {
     const side = mine ? 'you' : 'opponent';
-    return `<div><div class="fighter-avatar ui-panel ${mine ? 'ui-panel-raised' : 'ui-result opponent'}"><div class="fighter-motion" data-fighter="${side}">${roosterSVG(side, mine ? '#f5bc69' : '#afc8bb')}</div></div><strong class="fighter-name" data-fighter-name="${side}">${escapeHTML(fighterName(item))}</strong><div class="fighter-meta"><span data-fighter-role="${side}">${tr(mine ? 'battle.yourFighter' : item.is_bot ? 'battle.bot' : 'battle.player')}</span> · <b data-fighter-power="${side}"${mine ? '' : ' id="opponent-power"'}>${icon('power')}<span data-power-value="${side}">${!mine && preparing && roulette ? '—' : fmt(item.power)}</span></b></div></div>`;
+    return `<div><div class="fighter-avatar${mine ? '' : ' opponent'}"><div class="fighter-motion" data-fighter="${side}">${renderRooster(item, { label: t('a11y.rooster'), frame })}</div></div><strong class="fighter-name" data-fighter-name="${side}">${escapeHTML(fighterName(item))}</strong><div class="fighter-meta"><span data-fighter-role="${side}">${tr(mine ? 'battle.yourFighter' : item.is_bot ? 'battle.bot' : 'battle.player')}</span> · <b data-fighter-power="${side}"${mine ? '' : ' id="opponent-power"'}>${icon('power')}<span data-power-value="${side}">${!mine && preparing && roulette ? '—' : fmt(item.power)}</span></b></div></div>`;
   };
   const odds = `<div class="battle-odds" id="battle-odds"${preparing || !Number.isFinite(battle.current_win_probability) ? ' hidden' : ''}><div><span>${tr('battle.winChance')}</span><strong class="ui-title">${Number.isFinite(battle.current_win_probability) ? fmt(Math.round(battle.current_win_probability * 10000) / 100) + '%' : '—'}</strong></div></div>`;
   const hitEffects = '<div class="battle-hit-effects" aria-hidden="true"><span class="hit-slash"></span><span class="hit-spark"></span><span class="hit-spark"></span><span class="hit-spark"></span><span class="hit-spark"></span></div>';
@@ -788,9 +855,9 @@ function renderBattle(battle) {
   return `<section class="battle-layout" aria-label="${tr('battle.screenTitle')}">
     <div class="battle-overview">
       <div class="battle-heading"><div><span class="eyebrow">${escapeHTML(modeName(battle.mode))}</span><h1 class="ui-headline">${tr('battle.screenTitle')}</h1></div><div class="battle-timer ui-panel ui-panel-inset"><span class="ui-title" id="battle-seconds">—</span><small> ${tr('common.seconds')}</small></div></div>
-      <section class="battle-card ui-panel"><div class="battle-topline"><span class="live-tag"><span class="status-dot" aria-hidden="true"></span><span id="battle-phase">${tr(preparing ? 'battle.preparing' : 'battle.active')}</span></span><span>${legacy ? tr('battle.legacyRules') : free ? tr('battle.freeFight') : rich('battle.stake', { amount: money(battle.wager?.stake_minor) })}</span></div><div class="battle-duration-track ui-progress" aria-hidden="true"><div class="ui-progress-fill" id="battle-time-progress"></div></div>${reel}<div class="fighters" data-battle-id="${escapeHTML(battle.id)}">${fighter(battle.you, true)}<span class="vs ui-display" aria-hidden="true">VS</span>${fighter(battle.opponent, false)}${hitEffects}</div>${odds}<div class="battle-prize ui-info" id="battle-prize">${legacy ? tr('battle.legacyPrize') : free ? rich('battle.freePrize', { amount: money(battle.wager.win_payout_minor) }) : rich('battle.paidPrize', { amount: money(battle.wager?.win_payout_minor) })}</div></section>
+      <section class="battle-card ui-panel"><div class="battle-topline"><span class="live-tag"><span class="status-dot" aria-hidden="true"></span><span id="battle-phase">${tr(preparing ? 'battle.preparing' : 'battle.active')}</span></span><span>${legacy ? tr('battle.legacyRules') : free ? tr('battle.freeFight') : rich('battle.stake', { amount: money(battle.wager?.stake_minor) })}</span></div><div class="battle-duration-track ui-progress" aria-hidden="true"><div class="ui-progress-fill" id="battle-time-progress"></div></div>${reel}<div class="fighters" data-battle-id="${escapeHTML(battle.id)}">${fighter(battle.you, true)}<span class="vs ui-display" aria-hidden="true">VS</span>${fighter(battle.opponent, false)}${hitEffects}</div>${odds}<div class="battle-prize ui-info" id="battle-prize">${legacy ? tr('battle.legacyPrize') : free ? rich('battle.freePrize', { amount: money(battle.wager.win_payout_minor) }) : rich(battle.dynamic_payout ? 'battle.dynamicPrize' : 'battle.paidPrize', { amount: money(battle.wager?.win_payout_minor) })}</div></section>
     </div>
-    <div class="battle-controls"><div class="tap-score"><span>${tr('battle.yourTaps')} <strong>${fmt(battle.you.taps)} / ${fmt(battle.tap_cap)}</strong></span><span>${tr('battle.opponentTaps')} <strong>${fmt(battle.opponent.taps)}</strong></span></div><button type="button" class="ui-button ui-primary battle-tap" aria-keyshortcuts="Space" aria-describedby="battle-caption" data-action="battle-tap" data-focus="battle-tap"${disabled(Boolean(pending && !busy) || maxed || now() >= battle.ends_at || preparing)}><strong id="battle-tap-title">${rich(maxed ? 'battle.tapMaxed' : 'battle.tapActive')}</strong><span>${maxed ? tr('battle.tapsAccepted') : tr('battle.tapHint', { taps: fmt(battle.tap_cap) })}</span></button><p class="battle-caption" id="battle-caption"></p></div>
+    <div class="battle-controls"><div class="tap-score"><span>${tr('battle.yourTaps')} <strong>${fmt(battle.you.taps)} / ${fmt(battle.tap_cap)}</strong></span><span>${tr('battle.opponentTaps')} <strong>${fmt(battle.opponent.taps)}</strong></span></div><button type="button" class="ui-button ui-primary battle-tap" aria-keyshortcuts="Space" aria-describedby="battle-caption" data-action="battle-tap" data-focus="battle-tap"${disabled(battleInputBlocked() || maxed || now() >= battle.ends_at || preparing)}><strong id="battle-tap-title">${rich(maxed ? 'battle.tapMaxed' : 'battle.tapActive')}</strong><span>${maxed ? tr('battle.tapsAccepted') : tr('battle.tapHint', { taps: fmt(battle.tap_cap) })}</span></button><p class="battle-caption" id="battle-caption"></p></div>
   </section>`;
 }
 
@@ -803,7 +870,7 @@ function renderResult(battle) {
 
 function renderHistory() {
   const history = state.history || [];
-  return `<div class="section-title arena-section-title"><h2 class="ui-title ui-section-title">${tr('history.title')}</h2><small>${tr('history.stats', { wins: fmt(state.player.wins), losses: fmt(state.player.losses) })}</small></div>${history.length ? `<div class="history-list ui-panel">${history.slice(0, 5).map((battle) => `<div class="history-row"><span class="history-mark ui-badge" data-tone="${battle.result?.won ? 'success' : 'error'}" aria-hidden="true">${icon(battle.result?.won ? 'trophy' : 'feather')}</span><div class="history-detail"><strong>${escapeHTML(fighterName(battle.opponent))}${battle.opponent.is_bot ? ` · ${tr('common.botSuffix')}` : ''}</strong><span>${tr(battle.result?.won ? 'common.win' : 'common.loss')} · ${escapeHTML(modeName(battle.mode))}</span></div><span class="history-reward${battle.result?.net_minor < 0 ? ' negative' : ''}">${signedMoney(battle.result?.net_minor)} ${coin()}</span></div>`).join('')}</div>` : `<div class="empty-state arena-history-empty ui-panel"><span aria-hidden="true">${icon('arena')}</span>${tr('history.emptyTitle')}<br>${tr('history.emptyBody')}</div>`}`;
+  return `<div class="section-title arena-section-title"><h2 class="ui-title ui-section-title">${tr('history.title')}</h2><small>${tr('history.stats', { wins: fmt(state.player.wins), losses: fmt(state.player.losses) })}</small></div>${history.length ? `<div class="history-list ui-panel">${history.slice(0, 5).map((battle) => `<${battle.opponent.is_bot ? 'div' : 'button type="button"'} class="history-row${battle.opponent.is_bot ? '' : ' history-open ui-button'}"${battle.opponent.is_bot ? '' : ` data-action="open-result" data-battle-id="${escapeHTML(battle.id)}" data-focus="history-${escapeHTML(battle.id)}" aria-controls="battle-result-toast"`}><span class="history-mark ui-badge" data-tone="${battle.result?.won ? 'success' : 'error'}" aria-hidden="true">${icon(battle.result?.won ? 'trophy' : 'feather')}</span><div class="history-detail"><strong>${escapeHTML(fighterName(battle.opponent))}${battle.opponent.is_bot ? ` · ${tr('common.botSuffix')}` : ''}</strong><span>${tr(battle.result?.won ? 'common.win' : 'common.loss')} · ${escapeHTML(modeName(battle.mode))}</span>${battle.opponent.is_bot ? '' : `<span class="history-open-hint">${tr('history.openDetails')} ${icon('arrow-right')}</span>`}</div><span class="history-reward${battle.result?.net_minor < 0 ? ' negative' : ''}">${signedMoney(battle.result?.net_minor)} ${coin()}</span></${battle.opponent.is_bot ? 'div' : 'button'}>`).join('')}</div>` : `<div class="empty-state arena-history-empty ui-panel"><span aria-hidden="true">${icon('arena')}</span>${tr('history.emptyTitle')}<br>${tr('history.emptyBody')}</div>`}`;
 }
 
 /** Gear feedback follows the existing single, recoverable command; no optimistic economy. */
@@ -924,9 +991,20 @@ function renderRoostReward(kind) {
     ${renderRoostFeedback(kind)}
   </section>`;
 }
+function renderRoostEvents() {
+  const events = state.reward_events || [];
+  return `<section class="roost-events ui-panel" aria-labelledby="roost-events-title"><h2 class="ui-title" id="roost-events-title">${tr('roost.eventsTitle')}</h2>
+    ${events.length ? `<ol class="roost-event-list">${events.map(event => {
+      const label = tr(event.reason === 'battle_reward' ? 'roost.eventBattle' : event.reason === 'referral_signup' ? 'roost.eventSignup' : 'roost.eventReferral');
+      const amount = escapeHTML(signedMoney(event.amount_minor)).replace(/([,\u00a0\u202f])(?=\d{3}(?:[,\u00a0\u202f.]|$))/g, '$1<wbr>');
+      return `<li class="roost-event" data-reward-event="${escapeHTML(event.id)}"><div class="roost-event-main"><strong>${label}</strong>${event.friend_name ? `<span class="roost-event-friend">${escapeHTML(event.friend_name)}</span>` : ''}<time class="roost-event-time ui-muted">${escapeHTML(formatDate(event.created_at))}</time></div><span class="roost-event-amount"><span>${amount}</span>${coin()}</span></li>`;
+    }).join('')}</ol><p class="roost-events-hint ui-muted">${tr('roost.eventsHint')}</p>` : `<p class="ui-muted">${tr('roost.eventsEmpty')}</p>`}
+  </section>`;
+}
 function renderRoost() {
   const { player } = state;
   const breed = state.catalog.breeds.find(item => item.id === player.breed_id);
+  const referral = state.catalog.referral;
   const referralAvailable = Boolean(config.bot_username && !player.is_dev);
   const statValue = value => escapeHTML(fmt(value)).replace(/([,\u00a0\u202f])(?=\d{3}(?:[,\u00a0\u202f.]|$))/g, '$1<wbr>');
   return `<section class="roost-screen ui-screen" aria-labelledby="roost-title">
@@ -939,9 +1017,9 @@ function renderRoost() {
       <div class="roost-stat ui-panel"><dt>${icon('swords')}${tr('roost.battles')}</dt><dd class="ui-display">${statValue(player.battles)}</dd></div>
       <div class="roost-stat ui-panel"><dt>${icon('trophy')}${tr('roost.pvpWins')}</dt><dd class="ui-display">${statValue(player.pvp_wins)}</dd></div>
     </dl></section>
-    <section class="roost-referral ui-panel" aria-labelledby="roost-referral-title"><h2 class="ui-title" id="roost-referral-title">${tr('roost.inviteTitle')}</h2><p class="ui-muted">${tr('roost.referralBody')}</p>
+    <section class="roost-referral ui-panel" aria-labelledby="roost-referral-title"><h2 class="ui-title" id="roost-referral-title">${tr('roost.inviteTitle')}</h2><p class="ui-muted">${tr('roost.referralBody', { signupReward: money(referral.signup_reward_minor), battleReward: money(referral.battle_reward_minor), battles: fmt(referral.battles_required) })}</p>
       ${referralAvailable ? `<div class="roost-invite-actions"><button type="button" class="ui-button ui-accent" data-action="invite" data-focus="roost-invite">${rich('roost.invite')}</button><button type="button" class="ui-button" data-action="copy-invite" data-focus="roost-copy" aria-busy="${roostCopying}"${disabled(roostCopying)}>${roostCopying ? '<span class="ui-spinner" aria-hidden="true"></span>' : icon('document')}${tr(roostCopying ? 'roost.copying' : 'roost.copyInvite')}</button></div>${renderRoostFeedback('invite')}` : `<p class="roost-description ui-status">${icon('info')}<span>${tr(player.is_dev ? 'roost.telegramOnly' : 'roost.botSetup')}</span></p>`}
-    </section><p class="roost-footnote ui-info">${icon('info')}<span>${tr('roost.playMoney')}</span></p>
+    </section>${renderRoostEvents()}<p class="roost-footnote ui-info">${icon('info')}<span>${tr('roost.playMoney')}</span></p>
   </section>`;
 }
 
@@ -1010,7 +1088,7 @@ function updateTimers() {
     if ($('#battle-time-progress')) $('#battle-time-progress').style.width = `${preparing ? 100 : clamp(remaining / duration * 100, 0, 100)}%`;
     if ($('#battle-phase')) $('#battle-phase').textContent = t(preparing ? 'battle.preparing' : ended ? 'battle.finished' : 'battle.active');
     const button = $('[data-action="battle-tap"]');
-    if (button) button.disabled = preparing || ended || maxed || Boolean(pending && !busy);
+    if (button) button.disabled = preparing || ended || maxed || battleInputBlocked();
     const tapTitle = $('#battle-tap-title');
     const tapKey = preparing ? 'battle.tapPreparing' : ended ? 'battle.tapFinished' : maxed ? 'battle.tapMaxed' : 'battle.tapActive';
     const titleVersion = `${i18n.getLanguage()}:${tapKey}`;
@@ -1024,7 +1102,9 @@ function updateTimers() {
     if ($('#battle-caption')) $('#battle-caption').textContent = preparing
       ? t('battle.captionPreparing', { seconds: fmt(duration) })
       : ended ? t('battle.captionFinished')
-      : t(maxed ? 'battle.captionMaxed' : 'battle.captionCombat');
+      : t(maxed ? 'battle.captionMaxed' : pending?.path === '/battle/tap' && !busy
+        ? 'battle.captionReconnecting' : battleBuffer || pending?.path === '/battle/tap'
+          ? 'battle.captionSending' : 'battle.captionCombat');
     feedback.battle(battle, preparing ? 'preparing' : ended ? 'ended' : 'active');
   }
   if (state.queue && $('#queue-time')) {
@@ -1060,6 +1140,19 @@ async function handleAction(action, button) {
   if (action === 'dismiss-notice') return clearNotice();
   if (action === 'boot-retry') return boot();
   if (!state) return;
+  if (action === 'open-result') {
+    if (activeBattle() || state.queue) return;
+    const battle = state.history?.find(item => item.id === button.dataset.battleId);
+    if (!battle?.result || battle.opponent.is_bot) return;
+    closeResultToast();
+    resultToast = battle;
+    resultToastUntil = Infinity;
+    resultReturnBattleId = battle.id;
+    renderResultToast();
+    $('#battle-result-toast').querySelector('[data-action="close-result"]')?.focus({ preventScroll: true });
+    syncGuide();
+    return;
+  }
   if (action === 'retry-stake-quote') return loadStakeQuote();
   if (action === 'stake-range') { selectStake(Number(button.value)); return; }
   if (action === 'mode-help') {
@@ -1097,7 +1190,7 @@ async function handleAction(action, button) {
     return;
   }
   if (action === 'battle-tap') {
-    if (!activeBattle() || state.battle.you.taps >= state.battle.tap_cap || now() >= state.battle.ends_at || now() < state.battle.starts_at || (pending && !busy)) return;
+    if (!activeBattle() || state.battle.you.taps >= state.battle.tap_cap || now() >= state.battle.ends_at || now() < state.battle.starts_at || battleInputBlocked()) return;
     bufferedBattleId = state.battle.id;
     battleBuffer = Math.min(state.battle.tap_cap, battleBuffer + 1);
     animateBattleHit();
@@ -1168,6 +1261,12 @@ document.addEventListener('input', (event) => {
  * Leave text entry and other controls with their normal keyboard behavior.
  */
 document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && resultToast && !guide.isOpen()) {
+    event.preventDefault();
+    closeResultToast();
+    syncGuide();
+    return;
+  }
   if (event.key === 'Escape' && arenaHelpMode && tab === 'arena') {
     event.preventDefault();
     closeModeHelp();
@@ -1196,7 +1295,9 @@ window.addEventListener('blur', () => { spaceHeld = false; spaceHandled = false;
 document.querySelector('.brand').addEventListener('click', (event) => { event.preventDefault(); if (state) goTo('arena'); });
 environment.onResume(() => {
   lastPoll = 0; lastPresence = 0;
-  if (!booting) refreshState();
+  if (booting) return;
+  if (pending && !busy && (pending.path === '/battle/tap' || (pending.path === '/presence' && activeBattle()))) sendPending();
+  else refreshState();
 });
 window.addEventListener('online', () => { if (pending && !busy) sendPending(); else refreshState(); });
 window.addEventListener('offline', () => setConnection(false));

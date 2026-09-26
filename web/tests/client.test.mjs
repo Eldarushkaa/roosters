@@ -7,19 +7,20 @@ import vm from 'node:vm';
 import { createI18n, botNameKeys, LANGUAGE_STORAGE_KEY } from '../i18n.mjs';
 import { icon, iconText } from '../icons.mjs';
 import { createFeedback } from '../feedback.mjs';
+import { renderRooster, roosterBattleFrame } from '../rooster-art.mjs';
 
 const source = (await readFile(new URL('../app.js', import.meta.url), 'utf8'))
   .replace(/^import .* from '\.\/i18n\.mjs';\n/m, '')
   .replace(/^import .* from '\.\/environment\.mjs';\n/m, '')
-  .replace(/^import .* from '\.\/(icons|feedback|guide)\.mjs';\n/gm, '')
+  .replace(/^import .* from '\.\/(icons|feedback|guide|rooster-art)\.mjs';\n/gm, '')
   .replace(/\nboot\(\);\s*$/, '\n');
 const playerState = (id = 'dev:tester') => ({
   server_time: Date.now() / 1000,
   rules_version: 'v6',
   player: { id, name: 'Игрок', is_dev: id.startsWith('dev:'), balance_minor: 42000, power: 100, breed_id: 'yard', owned_breeds: ['yard'], level: 1, xp_in_level: 0, xp_to_next: 100, wins: 0, losses: 0, battles: 0, pvp_wins: 0, gear: {} },
   economy: { first_free_battle_available: true, passive_available_minor: 0, daily_reward_minor: 17000, daily_available: true, next_daily_at: 0, upgrade_costs_minor: {}, stake_limits: { min_minor: 1000, max_minor: 42000, step_minor: 1 }, bot_quotes: [1000, 2500, 5000, 10000].map((stake_minor) => ({ stake_minor, min_payout_minor: stake_minor * 1.5, max_payout_minor: stake_minor * 2.5 })), online_quotes: [{ stake_minor: 1000, win_payout_minor: 1900 }, { stake_minor: 2500, win_payout_minor: 4750 }, { stake_minor: 5000, win_payout_minor: 9500 }, { stake_minor: 10000, win_payout_minor: 19000 }] },
-  catalog: { breeds: [{ id: 'yard', name: 'Дворовый', price_minor: 0, power_multiplier: 1, power_multiplier_percent: 100, color: '#f3ad55' }], slots: [], battle: { duration: 10, roulette_duration: 2, tap_cap: 90, stakes_minor: [1000, 2500, 5000, 10000], bot_power_min_ratio: 0.7, bot_power_max_ratio: 1.4, bot_rtp_min: 0.9, bot_rtp_max: 1.10, pvp_win_multiplier: 1.9, free_reward_minor: 1500 } },
-  presence: { online: 0, searching: 0, development_online: 1 }, history: [], queue: null, battle: null,
+  catalog: { breeds: [{ id: 'yard', name: 'Дворовый', price_minor: 0, power_multiplier: 1, power_multiplier_percent: 100, color: '#f3ad55' }], slots: [], referral: { signup_reward_minor: 30000, battle_reward_minor: 30000, battles_required: 3 }, battle: { duration: 10, roulette_duration: 2, tap_cap: 90, stakes_minor: [1000, 2500, 5000, 10000], bot_power_min_ratio: 0.7, bot_power_max_ratio: 1.4, bot_rtp_min: 0.9, bot_rtp_max: 1.10, pvp_win_multiplier: 1.9, pvp_rtp: 1.2, free_reward_minor: 1500 } },
+  presence: { online: 0, searching: 0, development_online: 1 }, history: [], reward_events: [], queue: null, battle: null,
 });
 const reply = (status, payload) => ({ status, ok: status >= 200 && status < 300, json: async () => payload });
 const customQuote = (stake_minor, power = 100) => ({
@@ -35,7 +36,7 @@ function harness({ fetch, entries = {}, localEntries = {}, initData = '' } = {})
   const local = new Map(Object.entries(localEntries));
   const store = (data) => ({ getItem: (key) => data.get(key) ?? null, setItem: (key, value) => data.set(key, String(value)), removeItem: (key) => data.delete(key) });
   const elements = new Map();
-  const element = () => ({ hidden: false, dataset: {}, style: {}, classList: { toggle() {}, add() {}, remove() {} }, addEventListener() {}, replaceChildren() {}, querySelectorAll: () => [], setAttribute() {}, removeAttribute() {}, focus() { sandbox.document.activeElement = this; } });
+  const element = () => ({ hidden: false, dataset: {}, style: {}, classList: { toggle() {}, add() {}, remove() {} }, addEventListener() {}, replaceChildren() {}, querySelector: () => null, querySelectorAll: () => [], setAttribute() {}, removeAttribute() {}, focus() { sandbox.document.activeElement = this; } });
   const app = { initData, ready() {}, expand() {} };
   const intervals = [];
   const timeouts = new Map();
@@ -45,7 +46,7 @@ function harness({ fetch, entries = {}, localEntries = {}, initData = '' } = {})
   let guideMock;
   const sandbox = {
     createAppEnvironment: () => ({ telegram: app, start() { app.ready(); app.expand(); }, onResume(callback) { listeners.set('visibilitychange', callback); } }),
-    icon, iconText, createFeedback: options => createFeedback({...options, win: {}, doc: {querySelector: () => null}}),
+    icon, iconText, renderRooster, roosterBattleFrame, createFeedback: options => createFeedback({...options, win: {}, doc: {querySelector: () => null}}),
     createGuide(options) {
       let available = false;
       let opened = false;
@@ -773,6 +774,35 @@ test('first free battle is the primary action and no automatic upgrade is offere
   assert.doesNotMatch(result, /go-gear|upgrade|Усилить/);
 });
 
+test('Arena uses current appearance while bot and online fighters use their battle snapshots', () => {
+  const env = harness();
+  const state = playerState();
+  state.player.breed_id = 'ember';
+  state.player.gear = { helmet: 10, armor: 10, sword: 10 };
+  env.client.setState(state);
+  assert.match(env.client.renderArena(), /data-breed="ember"/);
+  const battle = {
+    id: 'frozen-fighter-art', status: 'active', rules_version: 'v8',
+    starts_at: Date.now() / 1000 - 1, ends_at: Date.now() / 1000 + 9,
+    tap_cap: 90, wager: { stake_minor: 1000, win_payout_minor: 2200 },
+    you: { name: 'Player', breed_id: 'yard', gear: { helmet: 0, armor: 1, sword: 3 }, power: 120, taps: 0 },
+    opponent: { name: 'Opponent', breed_id: 'storm', gear: { helmet: 5, armor: 8, sword: 10 }, power: 240, taps: 0 },
+  };
+  for (const mode of ['bot', 'online']) {
+    battle.mode = mode;
+    battle.opponent.is_bot = mode === 'bot';
+    const html = env.client.renderBattle(battle);
+    const art = html.match(/<svg\b[^>]*\bdata-breed="[^"]+"[^>]*>/g);
+    assert.equal(art.length, 2);
+    assert.match(art[0], /data-breed="yard"/);
+    assert.match(art[1], /data-breed="storm"/);
+    assert.doesNotMatch(html, /data-breed="ember"/);
+    assert.match(html, /data-fighter="you"/);
+    assert.match(html, /data-fighter="opponent"/);
+  }
+  assert.deepEqual(state.player.gear, { helmet: 10, armor: 10, sword: 10 });
+});
+
 test('all 80 clicks can be submitted in one batch with no client pace limit', async () => {
   const sent = [];
   const state = playerState();
@@ -786,6 +816,125 @@ test('all 80 clicks can be submitted in one batch with no client pace limit', as
   for (let i = 0; i < 80; i += 1) await env.client.handleAction('battle-tap', { dataset: {} });
   await env.intervals.find((item) => item.delay === 400).fn();
   assert.deepEqual(sent, [{ url: '/api/v1/battle/tap', body: { battle_id: 'fast-taps', taps: 80 } }]);
+});
+
+test('lost tap response keeps input live and automatically replays the same batch before queued clicks', async () => {
+  const state = playerState();
+  state.battle = { id: 'retry-taps', status: 'active', starts_at: Date.now() / 1000 - 1,
+    ends_at: Date.now() / 1000 + 9, tap_cap: 90, you: { taps: 0 }, opponent: { taps: 0 } };
+  const sent = [];
+  const env = harness({ fetch: async (url, options) => {
+    sent.push({ url, key: options.headers['Idempotency-Key'], body: options.body });
+    if (sent.length === 1) throw new TypeError('Response lost after commit');
+    const next = structuredClone(state);
+    next.battle.you.taps = sent.length === 2 ? 1 : 3;
+    return reply(200, { state: next, result: {} });
+  } });
+  env.client.setState(state);
+  const flush = env.intervals.find(item => item.delay === 400).fn;
+  await env.client.handleAction('battle-tap');
+  await flush();
+  await env.client.handleAction('battle-tap');
+  await env.client.handleAction('battle-tap');
+  assert.equal(env.client.getBattleBuffer().count, 2, 'A lost reply must not disable local input');
+  assert.equal(env.client.getState().battle.you.taps, 0, 'Only the server may confirm taps');
+  const retry = [...env.timeouts.values()].find(item => item.delay === 500);
+  assert.ok(retry, 'Transient tap failures must schedule an automatic retry');
+  await retry.fn();
+  assert.deepEqual(sent[0], sent[1]);
+  await flush();
+  assert.equal(JSON.parse(sent[2].body).taps, 2);
+  assert.notEqual(sent[2].key, sent[0].key);
+  assert.equal(env.client.getState().battle.you.taps, 3);
+});
+
+test('a stuck tap request times out before the whole battle and retains its UUID', async () => {
+  const state = playerState();
+  state.battle = { id: 'slow-taps', status: 'active', starts_at: Date.now() / 1000 - 1,
+    ends_at: Date.now() / 1000 + 9, tap_cap: 90, you: { taps: 0 }, opponent: { taps: 0 } };
+  const env = harness({ fetch: (url, options) => new Promise((resolve, reject) => {
+    options.signal.addEventListener('abort', () => reject({ name: 'AbortError' }));
+  }) });
+  env.client.setState(state);
+  const sending = env.client.mutate('/battle/tap', { battle_id: 'slow-taps', taps: 1 }, { quiet: true });
+  const key = env.client.getPending().key;
+  const timeout = [...env.timeouts.values()].find(item => item.delay === 2500);
+  assert.ok(timeout, 'Battle requests must not wait for the general 12-second timeout');
+  timeout.fn();
+  assert.equal(await sending, false);
+  assert.equal(env.client.getPending().key, key);
+  assert.ok([...env.timeouts.values()].some(item => item.delay === 500));
+});
+
+test('a failed presence during combat also recovers without disabling taps', async () => {
+  const state = playerState();
+  state.battle = { id: 'presence-taps', status: 'active', starts_at: Date.now() / 1000 - 1,
+    ends_at: Date.now() / 1000 + 9, tap_cap: 90, you: { taps: 0 }, opponent: { taps: 0 } };
+  const env = harness({ fetch: async () => { throw new TypeError('offline'); } });
+  env.client.setState(state);
+  await env.client.mutate('/presence', {}, { quiet: true });
+  const key = env.client.getPending().key;
+  await env.client.handleAction('battle-tap');
+  assert.equal(env.client.getBattleBuffer().count, 1);
+  for (const delay of [500, 1000, 2000, 2000]) {
+    const timer = [...env.timeouts.values()].find(item => item.delay === delay);
+    assert.ok(timer, `Missing bounded retry after ${delay}ms`);
+    await timer.fn();
+    assert.equal(env.client.getPending().key, key);
+    assert.equal(env.client.getPending().path, '/presence');
+  }
+});
+
+test('combat recovery does not automatically repeat economic commands', async () => {
+  const env = harness({ fetch: async () => { throw new TypeError('offline'); } });
+  env.client.setState(playerState());
+  await env.client.mutate('/battle/start', { mode: 'bot', stake_minor: 1000 });
+  assert.ok(env.client.getPending());
+  assert.equal([...env.timeouts.values()].some(item => [500, 1000, 2000].includes(item.delay)), false);
+});
+
+test('hidden combat pauses retries and resumes the same pending batch when visible', async () => {
+  const state = playerState();
+  state.battle = { id: 'resume-taps', status: 'active', starts_at: Date.now() / 1000 - 1,
+    ends_at: Date.now() / 1000 + 9, tap_cap: 90, you: { taps: 0 }, opponent: { taps: 0 } };
+  const sent = [];
+  const env = harness({ fetch: async (url, options) => {
+    sent.push({ url, key: options.headers['Idempotency-Key'], body: options.body });
+    if (sent.length === 1) throw new TypeError('offline');
+    return reply(200, { state, result: {} });
+  } });
+  env.client.setState(state);
+  await env.client.mutate('/battle/tap', { battle_id: 'resume-taps', taps: 1 }, { quiet: true });
+  env.document.hidden = true;
+  await [...env.timeouts.values()].find(item => item.delay === 500).fn();
+  assert.equal(sent.length, 1);
+  env.document.hidden = false;
+  env.listeners.get('visibilitychange')();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(sent[0], sent[1]);
+  assert.equal(env.client.getPending(), null);
+});
+
+test('battle settlement clears buffered taps after recovery and prevents late input', async () => {
+  const state = playerState();
+  state.battle = { id: 'ended-taps', status: 'active', starts_at: Date.now() / 1000 - 1,
+    ends_at: Date.now() / 1000 + 9, tap_cap: 90, you: { taps: 0 }, opponent: { taps: 0 } };
+  let calls = 0;
+  const env = harness({ fetch: async () => {
+    if (++calls === 1) throw new TypeError('offline');
+    const next = structuredClone(state);
+    next.battle.status = 'finished';
+    return reply(200, { state: next, result: { accepted: 1 } });
+  } });
+  env.client.setState(state);
+  await env.client.mutate('/battle/tap', { battle_id: 'ended-taps', taps: 1 }, { quiet: true });
+  await env.client.handleAction('battle-tap');
+  assert.equal(env.client.getBattleBuffer().count, 1);
+  await [...env.timeouts.values()].find(item => item.delay === 500).fn();
+  await env.client.handleAction('battle-tap');
+  assert.equal(env.client.getBattleBuffer().count, 0);
+  await env.intervals.find(item => item.delay === 400).fn();
+  assert.equal(calls, 2, 'No extra batch may be sent after settlement');
 });
 
 test('coin display preserves minor-unit precision without redundant decimals', () => {
@@ -922,6 +1071,60 @@ test('all English screen renderers translate catalog IDs while preserving actual
   assert.match(env.client.renderResult(result), /Payout 19/);
 });
 
+test('Roost explains both inviter rewards using localized server amounts and battle requirement', () => {
+  const env = harness();
+  const state = playerState('tg:42');
+  state.catalog.referral = { signup_reward_minor: 43210, battle_reward_minor: 76543, battles_required: 7 };
+  env.client.setState(state);
+  env.client.setConfig({ bot_username: 'rooster_test_bot' });
+  const ru = env.client.renderRoost();
+  assert.match(ru, /Ты получишь 432,1 монет, когда новый друг впервые зайдёт в игру по твоей ссылке, и ещё 765,43 монет после его 7 боёв/);
+  assert.match(ru, /Учитываются бесплатный бой, тренировки и онлайн/);
+  env.client.changeLanguage('en');
+  const en = env.client.renderRoost();
+  assert.match(en, /You receive 432\.1 coins when a new friend first joins the game through your link, plus 765\.43 more after they complete 7 battles/);
+  assert.match(en, /The free battle, training and online battles all count/);
+  assert.doesNotMatch(en, /you both|ranked battles/);
+});
+
+test('Roost payout history retains server order, zero payouts and escaped names across refresh and locale changes', () => {
+  const env = harness();
+  const state = playerState('tg:42');
+  const timestamp = Date.UTC(2026, 8, 26, 12) / 1000;
+  const events = [
+    { id: 44, reason: 'battle_reward', amount_minor: 0, created_at: timestamp, friend_name: null },
+    { id: 43, reason: 'referral', amount_minor: 30000, created_at: timestamp - 60, friend_name: '<script>friend</script>' },
+    { id: 42, reason: 'referral_signup', amount_minor: 30000, created_at: timestamp - 120, friend_name: '<script>friend</script>' },
+    { id: 41, reason: 'referral', amount_minor: 15000, created_at: timestamp - 180, friend_name: null },
+  ];
+  env.client.setState(state);
+  env.client.setConfig({ bot_username: 'rooster_test_bot' });
+  assert.match(env.client.renderRoost(), /Здесь появятся бонусы за друзей и выплаты за бои/);
+  state.reward_events = events;
+  const ru = env.client.renderRoost();
+  assert.ok(ru.indexOf('roost-referral-title') < ru.indexOf('roost-events-title'));
+  assert.deepEqual([...ru.matchAll(/data-reward-event="(\d+)"/g)].map(match => Number(match[1])), [44, 43, 42, 41]);
+  assert.match(ru, /Выплата за бой/);
+  assert.match(ru, /Бонус за бои по приглашению/);
+  assert.match(ru, /Бонус за приглашение/);
+  assert.match(ru, /<span>0<\/span>/);
+  assert.match(ru, /<span>\+300<\/span>/);
+  assert.match(ru, /&lt;script&gt;friend&lt;\/script&gt;/);
+  assert.doesNotMatch(ru, /<script>|\bnull\b/);
+  assert.ok(ru.includes(env.client.formatDate(timestamp)));
+  env.client.setState(structuredClone(state));
+  assert.equal(env.client.renderRoost(), ru, 'Repeated snapshots must not append events');
+  env.client.changeLanguage('en');
+  const en = env.client.renderRoost();
+  assert.match(en, /Payout history/);
+  assert.match(en, /Battle payout/);
+  assert.match(en, /Referral battle bonus/);
+  assert.match(en, /Invitation bonus/);
+  assert.match(en, /Winning payouts include the stake/);
+  assert.ok(en.includes(env.client.formatDate(timestamp)));
+  assert.equal((en.match(/data-reward-event=/g) || []).length, 4);
+});
+
 test('changing language retains buffered taps and sends no command of its own', async () => {
   const sent = [];
   const state = playerState();
@@ -1049,4 +1252,57 @@ test('result notice closes manually or at its original deadline, without replay 
   assert.equal(toast.hidden, true);
   env.client.acceptState(structuredClone(state));
   assert.equal(vm.runInContext('resultToast', env.context), null);
+});
+
+test('online result shows accepted taps and server odds, remains readable and reopens from history locally', async () => {
+  const env = harness({ localEntries: { 'rooster.v1.guideSeen.v1': '1' } });
+  const state = playerState();
+  const battle = {
+    id: 'online-analysis', mode: 'online', status: 'finished',
+    you: { name: '<you>', power: 100, taps: 90 },
+    opponent: { name: '<opponent>', power: 100, taps: 0, is_bot: false },
+    wager: { stake_minor: 1000, win_payout_minor: 2200 },
+    result: { won: true, payout_minor: 2200, net_minor: 1200, xp: 25 },
+    tap_analysis: {
+      you: { taps: 90, initial_probability: 0.5, final_probability: 6/11, change: 6/11 - 0.5 },
+      opponent: { taps: 0, initial_probability: 0.5, final_probability: 5/11, change: 5/11 - 0.5 },
+    },
+  };
+  state.battle = battle;
+  state.history = [battle];
+  env.client.acceptState(state);
+  env.client.renderResultToast();
+  const toast = env.document.querySelector('#battle-result-toast');
+  assert.match(toast.innerHTML, /90<\/td>/);
+  assert.match(toast.innerHTML, /54,55%/);
+  assert.match(toast.innerHTML, /45,45%/);
+  assert.match(toast.innerHTML, /\+4,55 п.п./);
+  assert.match(toast.innerHTML, /−4,55 п.п./);
+  assert.match(toast.innerHTML, /&lt;opponent&gt;/);
+  assert.equal(vm.runInContext('resultToastUntil', env.context), Infinity);
+  assert.doesNotMatch(toast.innerHTML, /result-close-timer/);
+  assert.match(env.client.renderHistory(), /<button[^>]*data-action="open-result"/);
+  await env.client.handleAction('close-result');
+  assert.equal(toast.hidden, true);
+  env.client.acceptState(structuredClone(state));
+  assert.equal(vm.runInContext('resultToast', env.context), null);
+  await env.client.handleAction('open-result', { dataset: { battleId: battle.id } });
+  assert.equal(toast.hidden, false);
+  const original = toast.innerHTML;
+  env.client.acceptState(structuredClone(state));
+  env.client.renderResultToast();
+  assert.equal(toast.innerHTML, original);
+  env.client.changeLanguage('en');
+  env.client.renderResultToast();
+  assert.match(toast.innerHTML, /How taps changed the odds/);
+  assert.match(toast.innerHTML, /54.55%/);
+  env.listeners.get('keydown')({ key: 'Escape', preventDefault() {} });
+  assert.equal(toast.hidden, true);
+  await env.client.handleAction('open-result', { dataset: { battleId: 'unknown' } });
+  assert.equal(toast.hidden, true);
+  await env.client.handleAction('open-result', { dataset: { battleId: battle.id } });
+  const active = structuredClone(state);
+  active.battle = { ...battle, id: 'new-fight', status: 'active', result: null };
+  env.client.acceptState(active);
+  assert.equal(toast.hidden, true);
 });

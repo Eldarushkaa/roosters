@@ -29,6 +29,20 @@
 .roost-stat dd { overflow-wrap: normal; }
 .roost-referral { display: grid; gap: var(--ui-space-3); }
 .roost-invite-actions { display: grid; gap: var(--ui-space-3); }
+.roost-events { display: grid; gap: var(--ui-space-3); }
+.roost-event-list { list-style: none; margin: 0; padding: 0; }
+.roost-event { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--ui-space-3); padding: var(--ui-space-3) 0; }
+.roost-event + .roost-event { border-top: 1px solid var(--ui-ink); }
+.roost-event:first-child { padding-top: 0; }
+.roost-event:last-child { padding-bottom: 0; }
+.roost-event-main { min-width: 0; overflow-wrap: anywhere; }
+.roost-event-main > strong { display: block; font-size: var(--ui-text-sm); line-height: var(--ui-leading-body); }
+.roost-event-friend { display: block; font-size: var(--ui-text-sm); }
+.roost-event-time { display: block; margin-top: var(--ui-space-1); font-size: var(--ui-text-sm); }
+.roost-event-amount { display: flex; align-items: center; justify-content: flex-end; gap: var(--ui-space-1); max-width: 11ch; font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
+.roost-event-amount > span { min-width: 0; }
+.roost-event-amount > .ui-icon { width: 20px; height: 20px; flex: 0 0 20px; }
+.roost-events-hint { font-size: var(--ui-text-sm); }
 .roost-footnote > .ui-icon { width: 24px; height: 24px; }
 
 @media (max-height: 600px) {

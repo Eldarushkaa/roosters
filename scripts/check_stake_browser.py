@@ -12,7 +12,7 @@ from uuid import uuid4
 from playwright.sync_api import expect, sync_playwright
 from werkzeug.serving import make_server
 
-from roosters import create_app, wallet
+from roosters import create_app, rules, wallet
 from roosters.config import Settings
 from scripts.check_arena_browser import assert_stake_display, snapshot, stake_text
 from scripts.check_battle_browser import BRIDGE
@@ -184,15 +184,17 @@ def exercise(browser, url, app, clock, artifacts):
         mine, theirs = server_state(page), server_state(opponent)
         assert mine['player']['balance_minor'] == 0
         assert theirs['player']['balance_minor'] == 42000 - 2501
-        assert mine['battle']['wager'] == {'stake_minor': 10001, 'win_payout_minor': 19001}
-        assert theirs['battle']['wager'] == {'stake_minor': 2501, 'win_payout_minor': 4751}
+        chance = rules.win_probability(mine['battle']['you']['power'], mine['battle']['opponent']['power'], 0, 0)
+        prize = rules.online_payout(10001, chance)
+        assert mine['battle']['wager'] == {'stake_minor': 10001, 'win_payout_minor': prize}
+        assert theirs['battle']['wager'] == {'stake_minor': 2501, 'win_payout_minor': rules.online_payout(2501, 1 - chance)}
         clock.value = mine['battle']['ends_at'] + 1
         refresh(page)
         refresh(opponent)
         finished = server_state(page)
         assert finished['battle']['result']['won']
-        assert finished['battle']['result']['payout_minor'] == 19001
-        assert finished['player']['balance_minor'] == 19001
+        assert finished['battle']['result']['payout_minor'] == prize
+        assert finished['player']['balance_minor'] == prize
         page.locator('[data-action=close-result]').click()
 
         # Below the minimum, even synthetic clicks on disabled presets cannot

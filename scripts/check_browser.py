@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT))
 from playwright.sync_api import expect, sync_playwright  # noqa: E402
 from werkzeug.serving import WSGIRequestHandler, make_server  # noqa: E402
 
-from roosters import create_app  # noqa: E402
+from roosters import create_app, rules  # noqa: E402
 from roosters.config import Settings  # noqa: E402
 
 
@@ -109,7 +109,7 @@ def check_layout(page, label):
 
 def check_battle_rules(battle):
     """The real API, countdown and tap budget use the new simpler rules."""
-    assert battle["rules_version"] == "v6"
+    assert battle["rules_version"] == "v8"
     assert battle["ends_at"] - battle["starts_at"] == 10
     assert battle["tap_cap"] == 90
     assert "stance" not in battle["you"]
@@ -299,7 +299,7 @@ def check_hit_feedback(page, clock, artifacts):
     ).transform).e""")
     assert displacement > 10, "The CSS-variable lunge must actually move the rooster: {}".format(displacement)
     assert page.evaluate("""() => new DOMMatrixReadOnly(getComputedStyle(
-        document.querySelector('[data-fighter="opponent"] .rooster-svg')
+        document.querySelector('[data-fighter="opponent"] .rooster-art')
     ).transform).a === -1"""), "Opponent artwork must keep facing the player's rooster"
     # Polling replaces controls; resolve and measure in the same JS task.
     button_after = page.evaluate('document.querySelector("[data-action=battle-tap]").getBoundingClientRect().toJSON()')
@@ -539,7 +539,7 @@ def exercise(browser, base_url, clock, artifacts):
         assert lost["player"]["balance_minor"] == before_paid - 1000
         check_history_result(a, lost["battle"])
 
-        # Different stakes match immediately; each winner receives 1.9 of their own stake.
+        # Different stakes match immediately; each personal prize follows the final odds.
         a.locator('[data-action="stake"][data-stake-minor="2500"]').click()
         a.locator('[data-action="arena-mode"][data-mode="online"]').click()
         before_queue = server_state(a)["player"]["balance_minor"]
@@ -566,8 +566,9 @@ def exercise(browser, base_url, clock, artifacts):
             pvp_a, pvp_b = server_state(a)["battle"], server_state(b)["battle"]
             check_battle_rules(pvp_a)
             assert pvp_a["id"] == pvp_b["id"]
-            assert pvp_a["wager"] == {"stake_minor": 2500, "win_payout_minor": 4750}
-            assert pvp_b["wager"] == {"stake_minor": 1000, "win_payout_minor": 1900}
+            for battle, stake in ((pvp_a, 2500), (pvp_b, 1000)):
+                chance = rules.win_probability(battle["you"]["power"], battle["opponent"]["power"], 0, 0)
+                assert battle["wager"] == {"stake_minor": stake, "win_payout_minor": rules.online_payout(stake, chance)}
             expect(a.locator(".last-battle-card")).to_have_count(0)
             clock.value = pvp_a["ends_at"] + 1
             refresh(a)
@@ -577,7 +578,10 @@ def exercise(browser, base_url, clock, artifacts):
             settled_a, settled_b = server_state(a), server_state(b)
             assert settled_a["battle"]["result"]["won"] != settled_b["battle"]["result"]["won"]
             for before, settled, stake in zip(balances_before_pvp, (settled_a, settled_b), (2500, 1000)):
-                expected_payout = stake * 19 // 10 if settled["battle"]["result"]["won"] else 0
+                battle = settled["battle"]
+                chance = rules.win_probability(battle["you"]["power"], battle["opponent"]["power"],
+                                               battle["you"]["taps"], battle["opponent"]["taps"])
+                expected_payout = rules.online_payout(stake, chance) if battle["result"]["won"] else 0
                 assert settled["battle"]["result"]["payout_minor"] == expected_payout
                 assert settled["player"]["balance_minor"] == before - stake + expected_payout
             assert settled_a["player"]["pvp_wins"] == settled_b["player"]["pvp_wins"] == 0
@@ -595,6 +599,8 @@ def exercise(browser, base_url, clock, artifacts):
         finally:
             context_b.close()
 
+        if a.locator('[data-action="close-result"]').is_visible():
+            a.locator('[data-action="close-result"]').click()
         tab(a, "gear")
         before_lost = server_state(a)["player"]
         context_a.route("**/api/v1/gear/upgrade", lose_response, times=1)

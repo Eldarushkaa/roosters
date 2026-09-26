@@ -13,7 +13,7 @@ from math import isqrt
 from typing import Dict, Mapping, Optional
 
 
-RULES_VERSION = "v8"
+RULES_VERSION = "v6"
 COIN_SCALE = 100
 BATTLE_DURATION = 10
 ROULETTE_DURATION = 2
@@ -21,15 +21,13 @@ STAKES_MINOR = (1000, 2500, 5000, 10000)
 MIN_STAKE_MINOR = 1000
 STAKE_STEP_MINOR = 1
 # Presets above are shortcuts, not the accepted stake domain. Even the largest
-# online prize (12 times the stake) must remain an exact JSON/JavaScript integer.
+# bot prize (2.16 times the stake) must remain an exact JSON/JavaScript integer.
 MAX_SAFE_INTEGER = 2**53 - 1
-MAX_STAKE_MINOR = MAX_SAFE_INTEGER // 12
+MAX_STAKE_MINOR = MAX_SAFE_INTEGER * 25 // 54
 WELCOME_MINOR = 42000
 DAILY_MINOR = 17000
 FREE_REWARD_MINOR = 1500
-REFERRAL_SIGNUP_MINOR = 30000
-REFERRAL_MINOR = 30000
-REFERRAL_BATTLES_REQUIRED = 3
+REFERRAL_MINOR = 15000
 PASSIVE_PER_MINUTE_MINOR = 200
 PASSIVE_CAP_SECONDS = 8 * 3600
 MAX_GEAR_LEVEL = 10
@@ -37,9 +35,8 @@ TAP_CAP = 90
 TAP_BONUS_CAP = 0.2
 BOT_TAPS = 0
 BOT_RTP_MIN = Fraction(9, 10)
-BOT_RTP_MAX = Fraction(6, 5)
-PVP_RTP = Fraction(6, 5)
-PVP_WIN_MULTIPLIER = 2 * PVP_RTP  # Advisory quote before matching, at 50% odds.
+BOT_RTP_MAX = Fraction(11, 10)
+PVP_WIN_MULTIPLIER = Fraction(19, 10)
 
 BREEDS = [
     {
@@ -103,11 +100,6 @@ def catalog() -> dict:
         "coin_scale": COIN_SCALE,
         "breeds": deepcopy(BREEDS),
         "slots": deepcopy(SLOTS),
-        "referral": {
-            "signup_reward_minor": REFERRAL_SIGNUP_MINOR,
-            "battle_reward_minor": REFERRAL_MINOR,
-            "battles_required": REFERRAL_BATTLES_REQUIRED,
-        },
         "battle": {
             "duration": BATTLE_DURATION,
             "roulette_duration": ROULETTE_DURATION,
@@ -119,7 +111,6 @@ def catalog() -> dict:
             "bot_rtp_min": float(BOT_RTP_MIN),
             "bot_rtp_max": float(BOT_RTP_MAX),
             "pvp_win_multiplier": float(PVP_WIN_MULTIPLIER),
-            "pvp_rtp": float(PVP_RTP),
             "free_reward_minor": FREE_REWARD_MINOR,
         },
     }
@@ -174,11 +165,11 @@ def bot_power_bounds(player_power: int) -> tuple:
 
 
 def bot_probability(player_power: int, bot_power: int, taps: int) -> Fraction:
-    """Exact bot win chance, increasing by one third after ninety taps.
+    """Exact bot win chance, increasing by two ninths after ninety taps.
 
-    The zero-tap probability is P / (P + B). Each accepted tap adds 1/270 of
+    The zero-tap probability is P / (P + B). Each accepted tap adds 1/405 of
     that baseline, capped at ninety taps. With a fixed pre-fight prize this
-    raises theoretical gross RTP from 90% to 120%. This is a probability bonus,
+    raises theoretical gross RTP from 90% to 110%. This is a probability bonus,
     separate from the effective-power bonus used in PvP. Bot powers outside
     the roulette bounds are rejected rather than silently changing that curve.
     """
@@ -188,7 +179,7 @@ def bot_probability(player_power: int, bot_power: int, taps: int) -> Fraction:
     if not lower <= bot_power <= upper:
         raise ValueError("Bot power is outside the roulette bounds")
     base = Fraction(player_power, player_power + bot_power)
-    chance = base * Fraction(3 * TAP_CAP + min(taps, TAP_CAP), 3 * TAP_CAP)
+    chance = base * Fraction(9 * TAP_CAP + 2 * min(taps, TAP_CAP), 9 * TAP_CAP)
     if not 0 < chance < 1:
         raise ValueError("Bot probability must stay strictly between zero and one")
     return chance
@@ -206,7 +197,7 @@ def bot_payout(stake_minor: int, player_power: int, bot_power: int) -> int:
 
     Quote once before the roulette, from frozen powers and zero-tap chance.
     Tap count never changes this quote. Flooring only once to a whole minor
-    unit makes actual RTP slightly lower than 90%..120%; the difference is
+    unit makes actual RTP slightly lower than 90%..110%; the difference is
     less than one minor unit times the win chance, divided by the stake.
     A loss pays zero. The application charges entry and persists this quote.
     """
@@ -215,16 +206,14 @@ def bot_payout(stake_minor: int, player_power: int, bot_power: int) -> int:
     return quote.numerator // quote.denominator
 
 
-def online_payout(stake_minor: int, probability: Fraction = Fraction(1, 2)) -> int:
-    """Gross prize adjusted to final odds for a 120% personal expected return.
+def online_payout(stake_minor: int) -> int:
+    """Winner receives 1.9 times their own stake; the loser receives zero.
 
-    Before matching, default to equal odds for an advisory quote. Settlement
-    uses the exact final Fraction from frozen powers and both accepted tap
-    counts. Floor once to coin hundredths; the loser receives zero.
+    The opponent's stake never enters this quote. Before minor-unit rounding,
+    expected return is 1.9 times win probability, with no pooled-bank guarantee.
+    Floor once to a whole coin hundredth, including for custom stakes.
     """
-    if not isinstance(probability, Fraction) or not Fraction(1, 10) <= probability <= Fraction(9, 10):
-        raise ValueError("Online probability must be an exact Fraction in 10%..90%")
-    quote = _stake(stake_minor) * PVP_RTP / probability
+    quote = _stake(stake_minor) * PVP_WIN_MULTIPLIER
     return quote.numerator // quote.denominator
 
 

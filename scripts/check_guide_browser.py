@@ -62,6 +62,14 @@ def guide_geometry(page, label):
     expect(page.locator('#quick-guide')).to_have_attribute('aria-modal', 'true')
     expect(page.locator('#quick-guide')).to_have_attribute('aria-labelledby', 'guide-title')
     expect(page.locator('#guide-title')).not_to_be_empty()
+    expect(page.locator('.guide-steps > li')).to_have_count(6)
+    cards = page.locator('.guide-steps > li')
+    for index in (0, 2, 4):
+        left, right = cards.nth(index).bounding_box(), cards.nth(index + 1).bounding_box()
+        assert abs(left['y'] - right['y']) < 1, (label, left, right)
+        assert left['x'] + left['width'] <= right['x'], (label, left, right)
+    page.wait_for_function('''() => [...document.querySelectorAll('#quick-guide img')]
+        .every(image => image.complete && image.naturalWidth > 0)''')
     if page.locator('html').get_attribute('lang') == 'en':
         names = page.locator('#quick-guide [aria-label]').evaluate_all('nodes => nodes.map(n => n.getAttribute("aria-label")).join(" ")')
         assert not re.search(r'[А-Яа-яЁё]', page.locator('#quick-guide').inner_text() + names), label
@@ -77,6 +85,7 @@ def guide_geometry(page, label):
             body:{rect:body.getBoundingClientRect().toJSON(), scrollTop:body.scrollTop,
                 clientHeight:body.clientHeight,scrollHeight:body.scrollHeight,
                 clientWidth:body.clientWidth,scrollWidth:body.scrollWidth},
+            cards:[...dialog.querySelectorAll('.guide-card')].map(n => n.getBoundingClientRect().toJSON()),
             focusInside:dialog.contains(document.activeElement),
             backgroundInert:document.querySelector('.app-shell').inert && document.querySelector('#navigation').inert,
             targets:[...dialog.querySelectorAll('button')].map(n => ({
@@ -88,6 +97,12 @@ def guide_geometry(page, label):
     assert box['left'] >= 6 and box['right'] <= page.viewport_size['width'] - 8, (label, geometry)
     assert geometry['backgroundInert'] and geometry['focusInside'], (label, geometry)
     assert geometry['body']['scrollWidth'] <= geometry['body']['clientWidth'] + 1, (label, geometry)
+    if page.viewport_size['width'] < 600 and geometry['body']['scrollTop'] == 0:
+        for card in geometry['cards'][:4]:
+            assert card['top'] >= geometry['body']['rect']['top'] - 1, (label, geometry)
+            assert card['bottom'] <= geometry['body']['rect']['bottom'] + 1, (label, geometry)
+        heights = [card['height'] for card in geometry['cards']]
+        assert max(heights) - min(heights) < 1, (label, heights)
     assert len(geometry['close']) == 2, (label, geometry)
     for target in geometry['targets']:
         assert target['text'].strip(), (label, target)
@@ -224,6 +239,20 @@ def exercise(browser, url, clock, artifacts):
                 finally:
                     context.close()
 
+    # The same two-column composition also scales to wider viewports.
+    for width, height in [(680, 960), (1024, 1536)]:
+        for language in ('ru', 'en'):
+            label = f'{width}x{height}-{language}-desktop'
+            context, page, mutations = context_for('guide_' + label, width, height, language)
+            try:
+                guide_geometry(page, label)
+                cards = page.locator('.guide-steps > li')
+                assert abs(cards.nth(0).bounding_box()['y'] - cards.nth(1).bounding_box()['y']) < 1
+                page.screenshot(path=str(artifacts / (label + '.png')))
+                assert not mutations, (label, mutations)
+            finally:
+                context.close()
+
     # An interrupted first introduction must not cover an active battle. The
     # unseen guide waits until settlement and explicit result-toast dismissal.
     context, page, _ = context_for('guide_restored_battle')
@@ -290,7 +319,7 @@ def exercise(browser, url, clock, artifacts):
         context.close()
     assert not errors, errors
     (artifacts / 'matrix.json').write_text(json.dumps(matrix, indent=2))
-    print('Guide browser passed: 20 mobile combinations, first launch, persistence, manual open, focus/inert/scroll, localization, no commands and restored battle/queue deferral.')
+    print(f'Guide browser passed: {len(SIZES) * 4} mobile combinations and 4 desktop layouts, six illustrated steps, first launch, persistence, manual open, focus/inert/scroll, localization, no commands and restored battle/queue deferral.')
 
 
 def main():

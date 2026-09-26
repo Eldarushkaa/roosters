@@ -72,8 +72,8 @@ only preserved fighters' text labels and SVG accessibility labels are refreshed;
 motion wrappers, animations and Space input remain intact.
 
 The current `bot` mode is labeled `Тренировка` / `Training` throughout the UI.
-Its API mode, v6 rules, stake and payouts are unchanged; paid training can lose
-the stake. Archived `practice` battles retain their separate legacy meaning.
+It keeps API mode `bot`; the current maximum RTP is 120% at 90 taps.
+Paid training can lose the stake. Archived `practice` battles retain their separate legacy meaning.
 
 ## Quick guide
 
@@ -85,6 +85,18 @@ support the header control and app lifecycle. The guide sends no game command.
 `guide.css` owns its layout; `renderGuideContent` and `syncGuide` in `app.js` own
 localized content and eligibility. `index.html` owns the header trigger and
 overlay hosts. Game actions stay blocked while the guide is open.
+
+The illustrated guide has six numbered cards: stake, training, battle/taps,
+online, equipment and rewards. Cards use two columns at all supported widths,
+with compact artwork below 600px; the header and footer remain visible while the content scrolls.
+Each card has one short sentence; mobile cards have equal heights and show at
+least the first four fully on opening at the supported phone sizes. Telegram's
+existing stable usable-height flag `data-compact-arena` hides the intro and
+reduces artwork on short screens. Server tap limits and stake-loss information
+remain live localized text below the cards.
+`assets/guide/` contains the text-free coach and reward artwork with generation
+prompts in its README. The decorative fight label has no button semantics;
+the footer's “Let's go!” acknowledges and closes the guide only.
 
 On the first browser launch, automatic opening waits for authentication and
 pending-command recovery. Active battles, matchmaking, unfinished commands and
@@ -158,13 +170,13 @@ an informational footer. The guide does not promise a win or invent rewards.
   the hero. Both paid modes offer a slider from 10 coins to the available balance
   in 0.01-coin steps, with 10/25/50/100 quick choices. Online
   matches accept different stakes and powers within the same account scope
-  (Telegram or development). Each player's win payout is `floor(1.9 × own stake)`
+  (Telegram or development). Each player's v8 win payout is `floor(1.2 × own stake / final win chance)`
   in minor units, including the stake. The UI reads it from
-  `economy.online_quotes` (`stake_minor`, `win_payout_minor`) instead of calculating
-  it from a shared pool. `catalog.battle.pvp_win_multiplier` replaces the old
-  `pvp_pool_return`. Power and accepted taps change the win probability and
-  expected return; the opponent's stake does not change the personal payout.
-  Current bot RTP rises from 90% without taps to 110% at 90 accepted taps before
+  `battle.wager` during combat; `economy.online_quotes` is an advisory quote at
+  50% odds before matching. `catalog.battle.pvp_win_multiplier` also refers to
+  50% odds; `pvp_rtp` supplies the personal expected return. Power and accepted
+  taps change the win probability while the prize adjusts to preserve RTP.
+  Current bot RTP rises from 90% without taps to 120% at 90 accepted taps before
   payout rounding; the catalog owns these limits. At equal power this means a
   win chance from 50% to 61.11%. Already-started v5/v4/v3 battles retain their rules.
 - `economy.stake_limits` supplies `min_minor`, `max_minor`, and `step_minor`.
@@ -178,7 +190,7 @@ an informational footer. The guide does not promise a win or invent rewards.
   a fractional balance can be selected in full. Below the minimum, paid starts
   and stake controls are disabled. A falling balance clamps the selection;
   polling and language changes retain the range node and the valid selection.
-  `renderKeepingStakeRange` keeps the native input and its ancestor path attached
+  `renderKeepingPrimaryControl` keeps the native input and its ancestor path attached
   while updating sibling content, so a poll does not interrupt an active drag.
   `stakeSelectionBlocked` allows local selection during a pending `/presence`
   heartbeat. Paid commands remain serialized and blocked until it completes;
@@ -211,8 +223,8 @@ an informational footer. The guide does not promise a win or invent rewards.
   buys or suggests an upgrade. Gear remains a separate user-selected action.
   Arena and the queue no longer render a persistent Last Battle card. Completed
   results remain in server history. The victory/defeat notice closes with its
-  cross or four seconds after first display. The ring around the cross drains
-  against the same deadline;
+  cross; bot notices also close four seconds after first display. Their ring
+  drains against the same deadline; online details stay open for reading;
   polling, changing tabs and switching language never restart the timer.
   `sessionStorage` remembers the last observed result for each player, preventing
   a repeat notice after reload in the same tab. With storage denied, this
@@ -233,6 +245,24 @@ an informational footer. The guide does not promise a win or invent rewards.
   do not send heartbeat or polling traffic. Returning to the app refreshes
   state. Battle countdowns use the latest server clock offset and never settle
   a result locally.
+- During the same battle, the tap button, its labels and ancestor path stay
+  attached across state updates, preserving a touch held between touchstart and
+  touchend. Fighter nodes retain the existing animation-preservation contract.
+  Tap batches still flush every 400 ms and all commands remain serialized.
+  A lost tap response no longer disables local input: additional clicks remain
+  buffered while the original immutable UUID/body is retried automatically after
+  500/1000/2000 ms (then at most once per 2000 ms plus request duration).
+  Tap requests and in-battle presence requests use a 2500 ms timeout instead of
+  the general 12000 ms timeout. Failed in-battle presence also recovers
+  automatically; economic commands keep their existing recovery behavior and
+  failed authentication does not schedule automatic retries. Hidden documents
+  pause automatic retries; resume retries a pending combat command before
+  refreshing state.
+  RU/EN captions distinguish sending and reconnecting. The displayed count and
+  odds remain server-confirmed; local animation never claims acceptance. Input
+  remains subject to preparation, deadline and cap, and settlement discards
+  unsent buffered clicks. A prolonged outage can still prevent clicks from
+  reaching the server before the deadline; no client-side extension is granted.
 - Real and development counts and leaderboards are explicitly separated.
 - Server text is HTML-escaped, and breed colors are restricted to hex values.
 
@@ -247,7 +277,8 @@ node --test web/tests/*.test.mjs
 `python -m scripts.check_battle_browser` runs the focused Battle browser review
 against a temporary database. It covers 360/390/430px, a 360×560 short viewport,
 320px, RU/EN, light/dark, simulated Telegram safe areas and viewport changes,
-scroll preservation, reload from another tab, lost tap response/retry, the tap
+scroll preservation, reload from another tab, a real touch held across a state
+update, lost tap response/automatic retry with continued input, the tap
 cap, and restored navigation after settlement. Screenshots go to
 `artifacts/battle-layout`. Native Telegram gestures still require device review.
 
@@ -311,6 +342,18 @@ so a hidden browser profile correctly expires from presence.
 For referral sharing, configure the bot's Main Mini App as described in
 `docs/TELEGRAM_SETUP.md`; setting a chat menu alone is not sufficient for
 `?startapp=` links.
+Roost reads both inviter rewards and the completed-battle requirement from
+`catalog.referral` (`signup_reward_minor`, `battle_reward_minor`,
+`battles_required`) and formats them in the active locale. The first reward is
+paid when a new Telegram player first joins through the referral link; the
+second follows the required completed battles, including free, training and
+online battles. Sharing or copying a link does not itself pay a reward.
+Below the invitation panel, Roost renders `state.reward_events` in server order:
+the latest referral signup bonuses, friend battle milestones, and battle payouts.
+Each row displays its server amount, localized time and escaped friend name when
+provided. Battle amounts are gross payouts, including the stake for paid wins;
+zero payouts remain visible. Polling replaces the list from the current snapshot
+without accumulating duplicate events. An empty list shows a localized message.
 
 ## Telegram runtime and browser fallback
 
@@ -406,3 +449,36 @@ It also verifies actual upgrade/buy/equip payloads, local processing, response
 loss after commit with an identical retry and one charge, definite errors and
 matchmaking locks. Screenshots are in `artifacts/gear-layout/`. Native Telegram
 WebView gestures and real device inset reporting still require device QA.
+
+Online v8 results show the server's `tap_analysis`: accepted taps, initial
+and final odds and changes in percentage points for both fighters. The initial
+odds use frozen powers without taps; this is the combined effect of both players.
+Online notices stay open until dismissal. Online history rows are native buttons
+that reopen the same result locally, without commands or haptics; Escape/close
+restore focus. Polls preserve the result DOM and scroll position. Starting another
+battle/queue or changing account closes it. Training notices keep the 4s deadline.
+
+Before matching, the online prize is an example at 50% odds. During v8 combat,
+`dynamic_payout` indicates that the server prize adjusts with accepted taps;
+legacy matches keep fixed prizes. `scripts.check_online_result_browser` covers
+20 mobile views plus history reopening, focus, reload and polling with a disposable DB.
+
+## Породы и экипировка в Arena/Battle
+
+`rooster-art.mjs` и `rooster-art.css` собирают утверждённых петухов v2 из
+прозрачных растровых атласов `assets/roosters/`. `renderRooster` принимает
+`{breed_id, gear}` и локализованный `label`. Броня выбирает кадр тела,
+шлем и меч выбираются независимо. Визуальные группы уровней: 0, 1–2, 3–4,
+5–7, 8–9, 10; игровые параметры каждого уровня определяет сервер.
+
+Arena передаёт текущего игрока; Battle передаёт сохранённые `battle.you` и
+`battle.opponent`. Не подменять их текущими данными игрока при polling/reload.
+Старые снимки без экипировки получают базовый комплект, неизвестная порода —
+безопасный вид Дворового. Сохраняются `.fighters`, `.fighter-motion` и hit-effects
+hooks; зеркалируется весь `.rooster-art`. Персонажи идут первыми в прокручиваемой
+области, tap-кнопка сохраняет половину полезной высоты. `roosterBattleFrame`
+вычисляет общую рамку пары: убирает пустое место, сохраняя разницу размеров пород.
+
+Проверка: `node --test web/tests/rooster-art.test.mjs`,
+`.venv/bin/python -m scripts.check_rooster_art_browser` и существующие
+Arena/Battle browser checks. Инвентарь, источники и экспорт: `assets/roosters/README.md`.

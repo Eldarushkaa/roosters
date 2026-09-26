@@ -88,7 +88,7 @@ class MigrationTests(unittest.TestCase):
         self.database.migrate()
         self.assertEqual(self.rows("players")[0]["balance_minor"], 19425)
         self.assertEqual(len(self.rows("coin_ledger")), 3)
-        self.assertEqual(len(self.rows("schema_migrations")), 5)
+        self.assertEqual(len(self.rows("schema_migrations")), 6)
 
     def test_active_battle_alone_uses_first_free_battle(self):
         self.player("tg:1")

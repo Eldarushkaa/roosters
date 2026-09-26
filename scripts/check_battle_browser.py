@@ -31,6 +31,9 @@ window.battleTheme = scheme => {
 
 
 def assert_controls(page, label, essential=True, bottom_inset=0, top_inset=0):
+    # Retaining the button also retains its 180ms battle-start feedback. Measure
+    # resting geometry after it finishes, rather than a transient scale frame.
+    page.wait_for_function("() => [...document.querySelector('.battle-tap').getAnimations()].every(a => a.playState !== 'running')")
     check_layout(page, label)
     expect(page.locator('#navigation')).to_be_hidden()
     expect(page.locator('.battle-help, .last-battle-card')).to_have_count(0)
@@ -103,7 +106,7 @@ def exercise(browser, url, clock, artifacts):
     errors = []
     sizes = [(360, 640), (390, 844), (430, 932), (360, 560), (320, 568)]
     for width, height in sizes:
-        context = browser.new_context(viewport={'width': width, 'height': height}, reduced_motion='no-preference')
+        context = browser.new_context(viewport={'width': width, 'height': height}, reduced_motion='no-preference', has_touch=True)
         context.route('https://telegram.org/js/telegram-web-app.js', lambda route: route.fulfill(
             status=200, content_type='application/javascript', body=BRIDGE))
         # Hold display time for repeatable screenshots; real API responses still
@@ -188,25 +191,43 @@ def exercise(browser, url, clock, artifacts):
             assert page.locator('.battle-layout').bounding_box()['x'] >= 20
             page.screenshot(path=str(artifacts / 'battle-telegram-safe-areas.png'))
             page.evaluate("document.documentElement.removeAttribute('style')")
+        # Keep a real touch held across state rendering. Replacing the button
+        # between touchstart and touchend used to lose this input on phones.
+        page.evaluate("window.savedTap = document.querySelector('.battle-tap')")
+        box = page.locator('.battle-tap').bounding_box()
+        touch = context.new_cdp_session(page)
+        touch.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [
+            {'x': box['x'] + box['width'] / 2, 'y': box['y'] + box['height'] / 2}]})
+        refresh(page)
+        page.wait_for_load_state('networkidle')
+        assert page.evaluate("savedTap === document.querySelector('.battle-tap') && savedTap.isConnected"), 'poll detached tap control'
+        with page.expect_response(lambda response: response.url.endswith('/api/v1/battle/tap')) as held:
+            touch.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+        assert held.value.json()['state']['battle']['you']['taps'] == 1
+        touch.detach()
         # Real taps and server totals, including a lost tap response and retry.
         def lost_tap(route):
             route.fetch()
             route.abort('failed')
         context.route('**/api/v1/battle/tap', lost_tap, times=1)
-        page.locator('.battle-tap').click()
-        expect(page.locator('[data-action=retry]')).to_be_visible()
-        assert_controls(page, 'tap retry')
-        page.screenshot(path=str(artifacts / f'battle-{width}x{height}-retry.png'))
-        command(page, '[data-action=retry]', 'battle/tap')
-        assert server_state(page)['battle']['you']['taps'] == 1
+        with page.expect_response(lambda response: response.url.endswith('/api/v1/battle/tap')) as recovered:
+            page.locator('.battle-tap').tap()
+            expect(page.locator('[data-action=retry]')).to_be_visible()
+            expect(page.locator('.battle-tap')).to_be_enabled()
+            page.locator('.battle-tap').tap()
+            assert_controls(page, 'tap retry')
+            page.screenshot(path=str(artifacts / f'battle-{width}x{height}-retry.png'))
+        assert recovered.value.json()['state']['battle']['you']['taps'] == 2
+        expect(page.locator('.tap-score strong').first).to_have_text('3 / 90')
+        assert server_state(page)['battle']['you']['taps'] == 3
         # Keyboard support uses the same command and must not add a second
         # native click when Space is released on the focused tap button.
         page.locator('.battle-tap').focus()
         with page.expect_response(lambda response: response.url.endswith('/api/v1/battle/tap')) as keyed:
             page.keyboard.press('Space')
-        assert keyed.value.json()['state']['battle']['you']['taps'] == 2
+        assert keyed.value.json()['state']['battle']['you']['taps'] == 4
         with page.expect_response(lambda response: response.url.endswith('/api/v1/battle/tap')) as tapped:
-            page.evaluate("() => { for(let i = 0; i < 88; i++) document.querySelector('.battle-tap').click(); }")
+            page.evaluate("() => { for(let i = 0; i < 86; i++) document.querySelector('.battle-tap').click(); }")
         assert tapped.value.json()['state']['battle']['you']['taps'] == 90
         expect(page.locator('.battle-tap')).to_be_disabled()
         assert_controls(page, 'maxed')

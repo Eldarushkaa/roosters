@@ -14,6 +14,7 @@ from playwright.sync_api import expect, sync_playwright
 from werkzeug.serving import make_server
 
 from roosters import create_app
+from roosters import wallet
 from roosters.config import Settings
 from scripts.check_browser import Clock, QuietRequests, check_layout, command, refresh, server_state
 from scripts.check_shell_browser import BRIDGE
@@ -63,17 +64,37 @@ def layout(page, label):
         notice.click()
     check_layout(page, label)
     assert page.locator('.roost-screen p, .roost-screen dt').evaluate_all('nodes => nodes.every(n => parseFloat(getComputedStyle(n).fontSize) >= 14)')
-    assert page.locator('.roost-screen button').evaluate_all('nodes => nodes.every(n => n.getBoundingClientRect().height >= 44)')
+    # A state refresh can replace controls during layout; measure after the
+    # rendered buttons have settled, retaining the exact 44px requirement.
+    page.wait_for_function("[...document.querySelectorAll('.roost-screen button')].every(n => n.getBoundingClientRect().height >= 44)")
     assert page.locator('.roost-screen .ui-button.ui-primary').count() <= 1
     assert page.locator('.roost-screen .btn').count() == 0
     # State refreshes can replace a button between scrolling and retaining its
     # handle. Measure scroll clearance atomically against the current DOM.
-    obscured = page.evaluate('''() => [...document.querySelectorAll('.roost-screen button')].filter(n => {
+    obscured = page.evaluate('''() => [...document.querySelectorAll('.roost-screen button, .roost-event')].filter(n => {
         n.scrollIntoView({block:'center', behavior:'instant'});
         const r = n.getBoundingClientRect();
         return ![0.15, 0.5, 0.85].every(y => n.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height * y)));
     }).map(n => n.outerHTML)''')
     assert not obscured, (label, obscured)
+
+
+def seed_reward_events(app, page, clock, player):
+    state = server_state(page)
+    pid = state['player']['id']
+    friend = f'tg:roost-friend-{player}'
+    app.extensions['game'].register(friend, 'Alex <hero>', False, state['player']['referral_code'])
+    with app.extensions['database'].transaction() as db:
+        wallet.change(db, pid, 30000, 'referral', friend, clock())
+        wallet.change(db, pid, 12345, 'battle_reward', f'roost-win-{player}', clock())
+        wallet.change(db, pid, 0, 'battle_reward', f'roost-loss-{player}', clock())
+    refresh(page)
+    rows = page.locator('.roost-event')
+    expect(rows).to_have_count(4)
+    assert rows.evaluate_all('nodes => nodes.map(n => Number(n.dataset.rewardEvent))') == [event['id'] for event in server_state(page)['reward_events']]
+    expect(rows.nth(0).locator('.roost-event-amount')).to_have_text('0')
+    expect(page.locator('.roost-event-friend').first).to_have_text('Alex <hero>')
+    assert page.locator('.roost-events hero, .roost-events script').count() == 0
 
 
 def exercise(browser, url, app, clock, artifacts):
@@ -86,7 +107,17 @@ def exercise(browser, url, app, clock, artifacts):
                 label = f'{width}x{height}-{scheme}-{language}'
                 context, page = context_for(browser, url, clock, player, width, height, scheme, language)
                 page.on('pageerror', lambda error: errors.append(str(error)))
+                expect(page.locator('.roost-events')).to_contain_text('Здесь появятся бонусы' if language == 'ru' else 'Bonuses for friends')
+                page.locator('.roost-events').evaluate("n => n.scrollIntoView({block:'end', behavior:'instant'})")
+                page.screenshot(path=str(artifacts / f'{label}-events-empty.png'))
+                seed_reward_events(app, page, clock, player)
                 seed(app, page, passive_at=clock() - 3600, xp=1234567, battles=1234567890, pvp_wins=987654321)
+                referral = page.locator('.roost-referral > .ui-muted')
+                expect(referral).to_have_text(
+                    'Ты получишь 300 монет, когда новый друг впервые зайдёт в игру по твоей ссылке, и ещё 300 монет после его 3 боёв. Учитываются бесплатный бой, тренировки и онлайн.'
+                    if language == 'ru' else
+                    'You receive 300 coins when a new friend first joins the game through your link, plus 300 more after they complete 3 battles. The free battle, training and online battles all count.'
+                )
                 layout(page, label)
                 expect(page.locator('[data-reward=daily]')).to_have_attribute('data-state', 'ready')
                 page.evaluate('scrollTo(0,0)')
@@ -106,7 +137,10 @@ def exercise(browser, url, app, clock, artifacts):
                 layout(page, label + '-claimed')
                 page.locator('[data-action=invite]').evaluate("n => n.scrollIntoView({block:'center'})")
                 page.screenshot(path=str(artifacts / f'{label}-invite.png'))
+                page.locator('.roost-events').evaluate("n => n.scrollIntoView({block:'end', behavior:'instant'})")
+                page.screenshot(path=str(artifacts / f'{label}-events.png'))
                 page.reload(wait_until='networkidle')
+                expect(page.locator('.roost-event')).to_have_count(4)
                 expect(page.locator('[data-reward=daily]')).to_have_attribute('data-state', 'waiting')
                 expect(page.locator('[data-reward=passive]')).to_have_attribute('data-state', 'waiting')
                 page.evaluate('scrollTo(0,0)')
@@ -173,6 +207,7 @@ def exercise(browser, url, app, clock, artifacts):
         payload = route.fetch().json()
         snapshot = payload.get('state', payload)
         snapshot['economy'].update(daily_reward_minor=987654321012345, passive_available_minor=987654321012345, daily_available=True)
+        snapshot['reward_events'] = [{'id': 900001, 'reason': 'referral_signup', 'amount_minor': 987654321012345, 'created_at': clock(), 'friend_name': 'AnExtremelyLongFriendNameWithoutSpaces<script>safe</script>'}]
         route.fulfill(json=payload)
     page.route('**/api/v1/state', huge_state)
     # Resume also schedules a presence mutation; retain the same fixture in its state.
@@ -186,6 +221,8 @@ def exercise(browser, url, app, clock, artifacts):
     layout(page, 'large-values')
     expect(page.locator('[data-reward=daily] .roost-amount')).to_contain_text('9,876,543,210,123.45')
     page.screenshot(path=str(artifacts / 'large-values.png'), full_page=True)
+    page.locator('.roost-events').evaluate("n => n.scrollIntoView({block:'center', behavior:'instant'})")
+    page.screenshot(path=str(artifacts / 'large-values-events.png'))
     page.wait_for_load_state('networkidle')
     # Drain asynchronous fetch/fulfill work before restoring live responses.
     # These are the only page routes; the Telegram bridge is context-owned.

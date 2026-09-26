@@ -135,6 +135,43 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(result.json["state"]["player"]["balance_minor"], 42000)
             self.assertEqual(result.json["state"]["presence"], {"online": 1, "development_online": 1, "searching": 0})
 
+    def test_signed_referral_login_immediately_rewards_inviter_once(self):
+        inviter = self.client.post("/api/v1/auth/telegram", json={"init_data": signed_data()})
+        self.assertEqual(inviter.status_code, 200)
+        code = inviter.json["state"]["player"]["referral_code"]
+        raw = signed_data(user={"id": 67890, "first_name": "Друг"}, start_param=code)
+        for _ in range(2):
+            invited = self.client.post("/api/v1/auth/telegram", json={"init_data": raw})
+            self.assertEqual(invited.status_code, 200)
+            self.assertEqual(invited.json["state"]["player"]["balance_minor"], 42000)
+            self.assertEqual(invited.json["state"]["reward_events"], [])
+        state = self.client.get("/api/v1/state", headers={"Authorization": "Bearer " + inviter.json["token"]}).json
+        self.assertEqual(state["player"]["balance_minor"], 72000)
+        self.assertEqual(state["catalog"]["referral"], {
+            "signup_reward_minor": 30000, "battle_reward_minor": 30000, "battles_required": 3})
+        self.assertEqual(len(state["reward_events"]), 1)
+        event = state["reward_events"][0]
+        self.assertIsInstance(event["id"], int)
+        self.assertEqual({key: value for key, value in event.items() if key != "id"}, {
+            "reason": "referral_signup", "amount_minor": 30000, "created_at": self.now, "friend_name": "Друг"})
+        self.assertEqual(self.client.get("/api/v1/state", headers=self.headers()).json["reward_events"], [])
+
+    def test_unsigned_referral_injection_cannot_register_or_credit(self):
+        inviter = self.client.post("/api/v1/auth/telegram", json={"init_data": signed_data()})
+        self.assertEqual(inviter.status_code, 200)
+        code = inviter.json["state"]["player"]["referral_code"]
+        raw = signed_data(user={"id": 67890, "first_name": "Друг"})
+        for payload, expected in (({"init_data": raw + "&start_param=" + code}, 401),
+                                  ({"init_data": raw, "start_param": code}, 400)):
+            with self.subTest(payload=payload):
+                rejected = self.client.post("/api/v1/auth/telegram", json=payload)
+                self.assertEqual(rejected.status_code, expected)
+        with self.app.extensions["database"].transaction() as db:
+            self.assertIsNone(db.execute("SELECT 1 FROM players WHERE id='tg:67890'").fetchone())
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM coin_ledger WHERE reason LIKE 'referral%'").fetchone()[0], 0)
+        state = self.client.get("/api/v1/state", headers={"Authorization": "Bearer " + inviter.json["token"]}).json
+        self.assertEqual(state["player"]["balance_minor"], 42000)
+
     def test_dev_session_rejected_after_development_auth_disabled(self):
         client = create_app(replace(self.settings, allow_dev_auth=False), clock=lambda: self.now).test_client()
         self.assertEqual(client.post("/api/v1/auth/dev", json={"user_id": "x", "name": "x"}).status_code, 403)
@@ -151,9 +188,9 @@ class ApiTests(unittest.TestCase):
         response = self.client.get(path, headers={"Authorization": "Bearer " + self.token})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.headers["Cache-Control"], "no-store")
-        self.assertEqual(response.json, {"rules_version": "v6", "power": 100, "stake_minor": 12345,
+        self.assertEqual(response.json, {"rules_version": "v8", "power": 100, "stake_minor": 12345,
                                         "bot": {"min_payout_minor": 18887, "max_payout_minor": 26665},
-                                        "online": {"win_payout_minor": 23455}})
+                                        "online": {"win_payout_minor": 29628}})
         state = self.client.get("/api/v1/state", headers=self.headers()).json
         self.assertEqual(state["economy"]["stake_limits"], {"min_minor": 1000, "max_minor": 42000, "step_minor": 1})
         self.assertTrue(state["economy"]["first_free_battle_available"])

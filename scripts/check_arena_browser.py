@@ -12,30 +12,41 @@ from scripts.check_browser import Clock, QuietRequests, command, refresh, server
 from scripts.check_battle_browser import BRIDGE
 
 ROOT = Path(__file__).resolve().parent.parent
-ARENA_ART = ('arena-background.webp', 'rooster-hero.webp')
+ARENA_ART = ('arena-background.webp',)
 
 
 def check_arena_art(page, label):
-    """Both live Arena entry states render the approved art and readable live data."""
+    """Both Arena entry states render the equipped fighter and readable live data."""
     scene = page.locator('.arena-scene')
     expect(scene).to_have_count(1)
     if page.locator('.first-fight').count():
         # Keep onboarding's free action first; inspect its scene after a normal scroll.
         scene.evaluate("scene => scene.scrollIntoView({block: 'center', behavior: 'instant'})")
-    for kind, filename in zip(('background', 'hero'), ARENA_ART):
-        image = scene.locator(f'img.arena-scene-{kind}')
-        expect(image).to_have_count(1)
-        if kind == 'background':
-            expect(image).to_have_attribute('alt', '')
-            expect(image).to_have_attribute('aria-hidden', 'true')
-        else:
-            assert (image.get_attribute('alt') or '').strip(), label
-        expect(image).to_be_visible()
-        page.wait_for_function('''selector => {
-          const image = document.querySelector(selector);
-          return image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
-        }''', arg=f'.arena-scene-{kind}')
-        assert image.evaluate('image => new URL(image.currentSrc).pathname') == f'/static/assets/arena/{filename}', label
+    background = scene.locator('img.arena-scene-background')
+    expect(background).to_have_attribute('alt', '')
+    expect(background).to_have_attribute('aria-hidden', 'true')
+    expect(background).to_be_visible()
+    page.wait_for_function('''() => {
+      const image = document.querySelector('.arena-scene-background');
+      return image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
+    }''')
+    assert background.evaluate('image => new URL(image.currentSrc).pathname') == '/static/assets/arena/arena-background.webp', label
+    fighter = scene.locator('.arena-scene-hero.rooster-art')
+    expect(fighter).to_have_count(1)
+    expect(fighter).to_have_attribute('role', 'img')
+    assert (fighter.get_attribute('aria-label') or '').strip(), label
+    expect(fighter).to_be_visible()
+    loaded = fighter.evaluate('''async art => {
+      const paths = [...new Set([...art.querySelectorAll('image')].map(node => node.getAttribute('href')))];
+      const images = await Promise.all(paths.map(path => new Promise(resolve => {
+        const image = new Image();
+        image.onload = () => resolve(image.naturalWidth > 0 && image.naturalHeight > 0);
+        image.onerror = () => resolve(false);
+        image.src = path;
+      })));
+      return paths.length > 0 && images.every(Boolean);
+    }''')
+    assert loaded, label + ': equipped fighter atlas did not load'
     data = scene.evaluate('''scene => {
       const rect = node => node.getBoundingClientRect().toJSON();
       const hero = scene.querySelector('.arena-scene-hero');
@@ -220,7 +231,8 @@ def exercise_help(page, mode, artifacts, label, *, first_free=False):
         assert panel.locator('.arena-risk').count() == 1, label
         assert panel.locator('.arena-risk').evaluate('el => parseFloat(getComputedStyle(el).fontSize)') >= 14
         if mode == 'bot':
-            expect(panel).to_contain_text('110')
+            battle_rules = server_state(page)['catalog']['battle']
+            expect(panel).to_contain_text(str(round(battle_rules['bot_rtp_max'] * 100)))
         snapshot(page, artifacts, label + '-help-' + mode)
         # The same question toggles the disclosure without selecting that mode.
         trigger.click()
@@ -351,13 +363,15 @@ def exercise(browser, url, clock, artifacts):
         # Real stake changes, reload, queue and cancellation preserve selections.
         page.locator('[data-action=mode-help][data-mode=online]').click()
         page.locator('[data-action=stake][data-stake-minor="2500"]').click()
-        expect(page.locator('#arena-mode-help .arena-risk')).to_contain_text('47.5')
+        online_quote = next(quote for quote in server_state(page)['economy']['online_quotes']
+                            if quote['stake_minor'] == 2500)
+        expect(page.locator('#arena-mode-help .arena-risk')).to_contain_text(stake_text(page, online_quote['win_payout_minor']))
         refresh(page)
         expect(page.locator('#arena-mode-help')).to_be_visible()
-        expect(page.locator('#arena-mode-help .arena-risk')).to_contain_text('47.5')
+        expect(page.locator('#arena-mode-help .arena-risk')).to_contain_text(stake_text(page, online_quote['win_payout_minor']))
         page.locator('[data-language=ru]').click()
         expect(page.locator('#arena-mode-help')).to_be_visible()
-        expect(page.locator('#arena-mode-help .arena-risk')).to_contain_text('47,5')
+        expect(page.locator('#arena-mode-help .arena-risk')).to_contain_text(stake_text(page, online_quote['win_payout_minor']))
         page.locator('[data-language=en]').click()
         page.locator('[data-action=arena-mode][data-mode=bot]').click()
         expect(page.locator('#arena-mode-help')).to_be_hidden()
@@ -415,7 +429,7 @@ def exercise(browser, url, clock, artifacts):
         context.close()
     assert not errors, errors
     (artifacts / 'matrix.json').write_text(json.dumps(matrix, indent=2))
-    print('Arena matrix passed:', len(matrix), 'screens + 8 long-fighter fixtures; approved live art loading and containment, live XP, native stake drag/keyboard/presets/polling, question controls, disclosure accessibility, no mutation, real queue/reload/selection and funds checks.')
+    print('Arena matrix passed:', len(matrix), 'screens + 8 long-fighter fixtures; equipped fighter loading and containment, live XP, native stake drag/keyboard/presets/polling, question controls, disclosure accessibility, no mutation, real queue/reload/selection and funds checks.')
     for label, geometry in matrix.items():
         if geometry['fight'] and label.endswith('bot-dark'):
             print(label, 'Fight bottom:', round(geometry['fight']['bottom']), 'Navigation top:', round(geometry['nav']['top']))

@@ -42,7 +42,7 @@
   line-height: var(--ui-leading-body);
 }
 
-/* The four-second notice is dismissible without blocking navigation or history.
+/* Bot notices expire after four seconds; online details stay until dismissed.
    Runtime still owns the deadline, focus restoration and inset values. */
 .result-toast.ui-result {
   position: fixed;
@@ -124,3 +124,67 @@
 @media (prefers-reduced-motion: reduce) {
   #result-close-progress { transition: none; }
 }
+
+.result-analysis { margin-block: var(--ui-space-4); }
+.result-analysis h3 { margin: 0; font-size: var(--ui-text-lg); }
+.result-analysis p { margin-block: var(--ui-space-2); font-size: var(--ui-text-sm); }
+.result-analysis table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: var(--ui-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.result-analysis thead {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.result-analysis tbody, .result-analysis tr { display: block; }
+.result-analysis tbody tr {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: var(--ui-space-2);
+  padding-block: var(--ui-space-3);
+  border-bottom: 1px solid var(--ui-ink);
+}
+.result-analysis tbody th {
+  grid-column: 1 / -1;
+  text-align: left;
+  font-weight: 400;
+}
+.result-analysis tbody th span { margin-right: var(--ui-space-2); color: var(--ui-muted); }
+.result-analysis tbody th strong { overflow-wrap: anywhere; }
+.result-analysis td { padding: 0; vertical-align: top; }
+.result-analysis td::before {
+  content: attr(data-label);
+  display: block;
+  margin-bottom: 4px;
+  color: var(--ui-muted);
+}
+.result-chance-path, .result-chance-change { display: block; }
+.result-chance-change { margin-top: 4px; color: var(--ui-muted); }
+.result-chance-change[data-tone=success] { color: var(--ui-success); }
+.result-chance-change[data-tone=error] { color: var(--ui-error); }
+.history-row.history-open {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-bottom: 1px solid var(--ui-ink);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  transform: none;
+  color: var(--ui-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.history-open:focus-visible { outline: 3px solid var(--ui-gold); outline-offset: -3px; }
+.history-row.history-open:active { background: var(--ui-ink); }
+.history-open .history-open-hint { color: var(--ui-text); }
+.history-open-hint .ui-icon { width: 16px; height: 16px; vertical-align: middle; }

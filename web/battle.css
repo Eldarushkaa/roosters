@@ -59,7 +59,7 @@
 .battle-timer { flex-shrink: 0; padding: var(--ui-space-1); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .battle-timer .ui-title { font-size: var(--ui-text-title); }
 .battle-timer small { font: var(--ui-text-sm)/1 var(--ui-font-body); color: var(--ui-muted); }
-.battle-card { overflow: hidden; }
+.battle-card { display: flex; flex-direction: column; overflow: hidden; }
 .battle-topline { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-2); color: var(--ui-muted); font-size: var(--ui-text-sm); }
 .battle-topline > :last-child { text-align: right; overflow-wrap: anywhere; }
 .live-tag { display: inline-flex; align-items: center; gap: var(--ui-space-1); flex-shrink: 0; color: var(--ui-text); font-weight: 700; }
@@ -67,6 +67,7 @@
 .battle-duration-track { margin: var(--ui-space-2) 0 var(--ui-space-3); }
 .battle-duration-track > div { transition: width .25s linear; }
 .fighters {
+  order: -1;
   position: relative;
   isolation: isolate;
   --strike-distance: clamp(38px, 14vw, 68px);
@@ -74,15 +75,16 @@
   grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr);
   gap: var(--ui-space-2);
   align-items: center;
+  margin-bottom: var(--ui-space-2);
   text-align: center;
 }
 .fighters > div { min-width: 0; }
-.fighter-avatar { position: relative; display: grid; place-items: center; width: 72px; height: 72px; padding: 0; margin: 0 auto var(--ui-space-2); }
-.fighter-avatar svg { width: 80px; height: 80px; }
+.fighter-avatar { position: relative; display: grid; place-items: center; width: 100%; max-width: 180px; height: clamp(130px, 38vw, 162px); padding: 0; margin: 0 auto var(--ui-space-2); }
+.fighter-avatar .rooster-art { display: block; width: 100%; height: 100%; }
 /* Keep movement separate from mirrored art, with the existing animation hooks. */
-.fighter-motion { width: 100%; height: 100%; display: grid; place-items: center; transform-origin: 50% 75%; }
-.fighter-avatar.opponent .rooster-svg { transform: scaleX(-1); }
-.battle-hit-effects { position: absolute; pointer-events: none; z-index: 2; top: 12px; left: 64%; width: 50px; height: 50px; }
+.fighter-motion { width: 100%; height: 100%; min-width: 0; min-height: 0; transform-origin: 50% 75%; }
+.fighter-avatar.opponent .rooster-art { transform: scaleX(-1); }
+.battle-hit-effects { position: absolute; pointer-events: none; z-index: 2; top: 46px; left: 64%; width: 50px; height: 50px; }
 .hit-slash { position: absolute; inset: 3px -8px; border-top: 3px solid var(--ui-gold); border-radius: 50%; opacity: 0; }
 .hit-spark { position: absolute; left: 22px; top: 19px; width: 7px; height: 4px; border-radius: 2px; background: var(--ui-gold); opacity: 0; }
 .hit-spark:nth-of-type(2) { --spark-x: -26px; --spark-y: -19px; }
@@ -129,13 +131,22 @@
 :root[data-compact-battle="true"] .battle-heading .eyebrow { display: none; }
 :root[data-compact-battle="true"] .battle-card { padding: var(--ui-space-2); }
 :root[data-compact-battle="true"] .battle-duration-track { margin: var(--ui-space-1) 0 var(--ui-space-2); }
-:root[data-compact-battle="true"] .fighter-avatar { width: 44px; height: 44px; margin-bottom: var(--ui-space-1); }
-:root[data-compact-battle="true"] .fighter-avatar svg { width: 52px; height: 52px; }
+/* A short viewport gives the overview about 110px above the half-screen tap
+   target. Put complete silhouettes first; names and match details stay below
+   them in the same scroll area instead of pushing the birds below the fold. */
+:root[data-compact-battle="true"] .fighters { align-items: start; }
+:root[data-compact-battle="true"] .fighter-avatar { height: 72px; margin-bottom: var(--ui-space-1); }
+:root[data-compact-battle="true"] .vs { padding-top: 32px; }
+:root[data-compact-battle="true"] .battle-hit-effects { top: 30px; }
 :root[data-compact-battle="true"] .roulette p { display: none; }
 :root[data-compact-battle="true"] .roulette { display: flex; align-items: center; justify-content: space-between; gap: var(--ui-space-2); padding: var(--ui-space-2); margin-bottom: var(--ui-space-2); }
 :root[data-compact-battle="true"] .roulette .eyebrow { margin: 0; }
 :root[data-compact-battle="true"] .roulette-window { width: 72px; flex-shrink: 0; margin: 0; }
 :root[data-compact-battle="true"] .battle-controls { padding-top: var(--ui-space-2); }
+@supports (height: 1cqh) {
+  :root[data-compact-battle="true"] .battle-overview { container-type: size; }
+  :root[data-compact-battle="true"] .fighter-avatar { height: clamp(72px, calc(100cqh - 16px), 142px); }
+}
 @media (prefers-reduced-motion: reduce) {
   .roulette-window.ui-badge { display: none; }
   .battle-duration-track > div { transition: none; }
