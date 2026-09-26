@@ -45,6 +45,18 @@ def check_controls(page, label):
     assert not obscured, (label, obscured)
 
 
+def check_fighters(page, state, label):
+    """Gear shows the live equipped fighter and each breed with that loadout."""
+    # The art checker imports this module's seed fixture; defer to avoid a cycle.
+    from scripts.check_rooster_art_browser import check_art
+
+    player = state['player']
+    check_art(page, '.gear-fighter-art .rooster-art', player, label + ': equipped')
+    for breed in state['catalog']['breeds']:
+        check_art(page, f'[data-breed-id="{breed["id"]}"] .rooster-art',
+                  {**player, 'breed_id': breed['id']}, label + ': ' + breed['id'])
+
+
 def exercise(browser, url, app, artifacts):
     errors = []
     for width, height in [(320, 568), (360, 560), (360, 640), (390, 844), (430, 932)]:
@@ -70,6 +82,7 @@ def exercise(browser, url, app, artifacts):
                 assert page.locator('[data-breed-id=yard] button').count() == 0
                 expect(page.locator('[data-breed-id=copper] button')).to_be_enabled()
                 expect(page.locator('[data-breed-id=storm] button')).to_be_disabled()
+                check_fighters(page, server_state(page), label)
                 check_controls(page, label)
                 page.evaluate('scrollTo(0,0)')
                 page.screenshot(path=str(artifacts / f'{label}-full.png'), full_page=True)
@@ -88,10 +101,11 @@ def exercise(browser, url, app, artifacts):
     page.goto(url + '/#gear', wait_until='networkidle')
     seed(app, page, balance_minor=100000)
     before = server_state(page)
+    check_fighters(page, before, 'before purchase')
     sent = []
     held = []
     page.route('**/api/v1/gear/upgrade', lambda route: held.append(route))
-    page.locator('[data-slot=sword]').click()
+    page.locator('[data-action=upgrade][data-slot=sword]').click()
     expect(page.locator('[data-slot-id=sword]')).to_have_attribute('aria-busy', 'true')
     expect(page.locator('[data-slot-id=helmet]')).to_have_attribute('aria-busy', 'false')
     expect(page.locator('[data-slot-id=helmet]')).to_have_attribute('data-state', 'waiting')
@@ -116,18 +130,20 @@ def exercise(browser, url, app, artifacts):
     after = server_state(page)
     assert after['player']['balance_minor'] == result['state']['player']['balance_minor']
     assert after['player']['gear']['sword'] == 1
+    check_fighters(page, after, 'applied upgrade')
     for breed, cost in [('copper', 50000), ('yard', 0), ('copper', 0)]:
         before = server_state(page)
         with page.expect_response(lambda response: response.url.endswith('/breed/buy')) as received:
-            page.locator(f'[data-breed="{breed}"]').click()
+            page.locator(f'[data-action=breed][data-breed="{breed}"]').click()
         response = received.value
         assert response.request.post_data_json == {'breed_id': breed}
         assert response.json()['state']['player']['balance_minor'] == before['player']['balance_minor'] - cost
         expect(page.locator(f'[data-breed-id={breed}]')).to_have_class(re.compile(r'\bis-equipped\b'))
         assert page.locator(f'[data-breed-id={breed}] button').count() == 0
+        check_fighters(page, response.json()['state'], 'equipped ' + breed)
     # A definitive API error stays local, retains useful screen data and permits recovery.
     page.route('**/api/v1/gear/upgrade', lambda route: route.fulfill(status=409, json={'error': {'code': 'insufficient_funds', 'message': 'server detail'}}))
-    page.locator('[data-slot=helmet]').click()
+    page.locator('[data-action=upgrade][data-slot=helmet]').click()
     expect(page.locator('[data-slot-id=helmet] .gear-feedback.is-error')).to_be_visible()
     assert 'server detail' not in page.locator('.gear-screen').inner_text()
     page.unroute('**/api/v1/gear/upgrade')

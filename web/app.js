@@ -12,6 +12,7 @@ import { icon, iconText } from './icons.mjs';
 import { createFeedback } from './feedback.mjs';
 import { createGuide } from './guide.mjs';
 import { renderRooster, roosterBattleFrame } from './rooster-art.mjs';
+import { createBattleInput } from './battle-input.mjs';
 
 const i18n = createI18n({
   getItem: (key) => localStorage.getItem(key),
@@ -370,6 +371,26 @@ function acceptState(next) {
     feedback.result(resultToast, previous?.player.id === next.player.id
       && previous?.battle?.status === 'active' && previous.battle.id === resultToast.id);
   }
+  // A state poll can discover a committed start/join whose answer was lost.
+  // Recover its original command before queued taps, without locking input.
+  scheduleCombatRetry();
+}
+
+/** Only a server-confirmed active fight makes start/join recovery automatic. */
+function combatRecoveryCommand(command = pending) {
+  if (!command || command.owner !== state?.player.id) return false;
+  return command.path === '/battle/tap'
+    || (activeBattle() && ['/presence', '/battle/start', '/queue/join'].includes(command.path));
+}
+
+function scheduleCombatRetry(command = pending) {
+  if (pending !== command || busy || document.hidden || commandRetryTimer
+      || command?.recoveryBlocked || !combatRecoveryCommand(command)) return;
+  const delay = Math.min(500 * 2 ** Math.min(Math.max(0, (command.attempts || 1) - 1), 2), 2000);
+  commandRetryTimer = setTimeout(() => {
+    commandRetryTimer = null;
+    if (pending === command && !document.hidden && !command.recoveryBlocked && combatRecoveryCommand(command)) return sendPending();
+  }, delay);
 }
 
 /** Serialize all writes. The saved payload is immutable until an answer arrives. */
@@ -383,6 +404,7 @@ async function mutate(path, body = {}, options = {}) {
 async function sendPending() {
   if (busy || !pending || !state) return false;
   clearTimeout(commandRetryTimer);
+  commandRetryTimer = null;
   if (pending.owner !== state.player.id) {
     pending = null;
     storage.remove('pending');
@@ -390,6 +412,7 @@ async function sendPending() {
   }
   const command = pending;
   command.attempts = (command.attempts || 0) + 1;
+  delete command.recoveryBlocked;
   storage.set('pending', JSON.stringify(command));
   if (gearCommandKey(command)) gearFeedback = null;
   const roostKey = roostCommandKey(command);
@@ -398,10 +421,12 @@ async function sendPending() {
   stateVersion += 1;
   render();
   try {
-    // A general 12-second timeout can consume an entire 10-second fight. A
-    // timed-out batch stays immutable and is replayed with the original UUID.
-    const combatTraffic = command.path === '/battle/tap' || (command.path === '/presence' && activeBattle());
-    const response = await request(command.path, { body: command.body, key: command.key, timeoutMs: combatTraffic ? 2500 : 12000 });
+    // Recover an initially stuck request quickly, then allow slower healthy
+    // replies through instead of aborting every retry at the same deadline.
+    // UUID/body remain unchanged, including a start/join discovered by a poll.
+    const timeoutMs = combatRecoveryCommand(command)
+      ? Math.min(2500 * 2 ** Math.min(command.attempts - 1, 2), 8000) : 12000;
+    const response = await request(command.path, { body: command.body, key: command.key, timeoutMs });
     if (!response.state?.player || !response.state?.catalog) throw localizedError('error.incomplete_response');
     pending = null;
     storage.remove('pending');
@@ -430,15 +455,14 @@ async function sendPending() {
       showNotice(errorMessage(error), { error: true });
       await refreshState();
     } else {
+      // Authentication failures need explicit recovery. A later state poll or
+      // visibility event must not turn them into an automatic retry loop.
+      command.recoveryBlocked = Boolean(error.keepPending);
+      storage.set('pending', JSON.stringify(command));
       showNotice({ key: 'notice.retrySafe', params: { message: errorMessage(error) } }, { error: true, retry: true });
       // Keep ordinary economic actions on their explicit recovery path. During
       // combat, recover transient transport failures without blocking input.
-      if (error.uncertain && !error.keepPending && (command.path === '/battle/tap' || (command.path === '/presence' && activeBattle()))) {
-        const delay = Math.min(500 * 2 ** Math.min(command.attempts - 1, 2), 2000);
-        commandRetryTimer = setTimeout(() => {
-          if (pending === command && !document.hidden) return sendPending();
-        }, delay);
-      }
+      if (error.uncertain && !error.keepPending) scheduleCombatRetry(command);
     }
     render();
     return false;
@@ -516,6 +540,7 @@ function activeBattle() { return state?.battle?.status === 'active'; }
 function battleInputBlocked() {
   if (!pending || busy) return false;
   return pending.path !== '/presence'
+    && !(activeBattle() && pending.owner === state.player.id && ['/battle/start', '/queue/join'].includes(pending.path))
     && !(pending.path === '/battle/tap' && pending.body.battle_id === state?.battle?.id);
 }
 function lockedGear() { return activeBattle() || Boolean(state?.queue); }
@@ -923,7 +948,7 @@ function renderUpgradeRow(slot) {
   </article>`;
 }
 
-function renderBreedChoice(breed) {
+function renderBreedChoice(breed, frame) {
   const player = state.player;
   const equipped = player.breed_id === breed.id;
   const owned = player.owned_breeds.includes(breed.id);
@@ -931,7 +956,7 @@ function renderBreedChoice(breed) {
   const status = gearAvailability(key, owned ? null : breed.price_minor, equipped);
   const description = i18n.has(`breed.${breed.id}.description`) ? t(`breed.${breed.id}.description`) : breed.description;
   return `<article class="gear-breed ui-panel${equipped ? ' ui-panel-raised is-equipped' : ''}" data-breed-id="${escapeHTML(breed.id)}" data-state="${status}" aria-busy="${status === 'loading'}">
-    <div class="gear-breed-heading"><div class="gear-breed-art ui-panel ui-panel-inset">${roosterSVG(`gear-${breed.id}`, breed.color)}</div><div><span class="gear-ownership ui-badge" data-tone="${equipped ? 'success' : owned ? 'accent' : 'neutral'}">${rich(equipped ? 'gear.equipped' : owned ? 'gear.owned' : 'gear.notOwned')}</span><h3 class="ui-title">${escapeHTML(breedName(breed.id))}</h3><p class="gear-multiplier">${tr('gear.multiplier', { multiplier: fmt(breed.power_multiplier) })}</p></div></div>
+    <div class="gear-breed-heading"><div class="gear-breed-art ui-panel ui-panel-inset">${renderRooster({ breed_id: breed.id, gear: player.gear }, { label: breedName(breed.id), frame })}</div><div><span class="gear-ownership ui-badge" data-tone="${equipped ? 'success' : owned ? 'accent' : 'neutral'}">${rich(equipped ? 'gear.equipped' : owned ? 'gear.owned' : 'gear.notOwned')}</span><h3 class="ui-title">${escapeHTML(breedName(breed.id))}</h3><p class="gear-multiplier">${tr('gear.multiplier', { multiplier: fmt(breed.power_multiplier) })}</p></div></div>
     <p class="gear-description ui-muted">${escapeHTML(description)}</p>
     ${equipped ? '' : renderGearAction({ key, cost: owned ? null : breed.price_minor, status, action: 'breed', attributes: `data-breed="${escapeHTML(breed.id)}"`, label: owned ? 'gear.equip' : 'gear.buyEquip', primary: !owned })}
     ${renderGearFeedback(key)}
@@ -940,14 +965,15 @@ function renderBreedChoice(breed) {
 
 function renderGear() {
   const player = state.player;
-  const breed = state.catalog.breeds.find(item => item.id === player.breed_id);
+  // One frame for the catalog preserves the relative size of each breed.
+  const breedFrame = roosterBattleFrame(state.catalog.breeds.map(breed => ({ breed_id: breed.id, gear: player.gear })));
   return `<section class="gear-screen ui-screen" aria-labelledby="gear-title">
     <div class="ui-screen-heading">${icon('gear')}<h1 class="ui-headline" id="gear-title">${tr('gear.screenTitle')}</h1></div>
-    <div class="gear-fighter ui-panel ui-panel-raised"><div class="gear-fighter-art">${roosterSVG('gear-current', breed?.color)}</div><div><p class="ui-muted">${tr('gear.currentFighter')}</p><h2 class="ui-title">${escapeHTML(breedName(player.breed_id))}</h2><div class="gear-fighter-stats"><span class="ui-badge" data-tone="neutral">${tr('common.level', { level: fmt(player.level) })}</span><strong>${icon('power')}${tr('arena.fighterPower', { power: fmt(player.power) })}</strong></div></div></div>
+    <div class="gear-fighter ui-panel ui-panel-raised"><div class="gear-fighter-art">${renderRooster(player, { label: t('a11y.rooster'), frame: roosterBattleFrame([player]), priority: true })}</div><div><p class="ui-muted">${tr('gear.currentFighter')}</p><h2 class="ui-title">${escapeHTML(breedName(player.breed_id))}</h2><div class="gear-fighter-stats"><span class="ui-badge" data-tone="neutral">${tr('common.level', { level: fmt(player.level) })}</span><strong>${icon('power')}${tr('arena.fighterPower', { power: fmt(player.power) })}</strong></div></div></div>
     ${lockedGear() ? `<p class="gear-lock ui-status" role="status">${tr('gear.locked')}</p>` : ''}
     ${blocked() && !lockedGear() ? `<p class="gear-lock ui-status" role="status">${tr(busy ? 'gear.commandPending' : 'gear.commandRetry')}</p>` : ''}
     <section aria-labelledby="gear-upgrades-title"><h2 class="ui-title ui-section-title" id="gear-upgrades-title">${tr('gear.upgradesTitle')}</h2><p class="gear-section-note ui-muted">${tr('gear.upgradesHint')}</p><div class="gear-upgrades equipment-grid">${state.catalog.slots.map(renderUpgradeRow).join('')}</div></section>
-    <section class="gear-breeds" aria-labelledby="gear-breeds-title"><h2 class="ui-title ui-section-title" id="gear-breeds-title">${tr('gear.breeds')}</h2><p class="gear-section-note ui-muted">${tr('gear.intro')}</p><div class="gear-breed-list">${state.catalog.breeds.map(renderBreedChoice).join('')}</div></section>
+    <section class="gear-breeds" aria-labelledby="gear-breeds-title"><h2 class="ui-title ui-section-title" id="gear-breeds-title">${tr('gear.breeds')}</h2><p class="gear-section-note ui-muted">${tr('gear.intro')}</p><div class="gear-breed-list">${state.catalog.breeds.map(breed => renderBreedChoice(breed, breedFrame)).join('')}</div></section>
   </section>`;
 }
 
@@ -1243,12 +1269,18 @@ async function handleAction(action, button) {
   }
 }
 
+const battleInput = createBattleInput({
+  pointerEvents: typeof window.PointerEvent === 'function',
+  onTap: button => handleAction('battle-tap', button).catch(() => showNotice({ key: 'notice.actionFailed' }, { error: true })),
+});
+document.addEventListener('pointerdown', battleInput.pointerDown);
 document.addEventListener('click', (event) => {
   const languageButton = event.target.closest('[data-language]');
   if (languageButton) return changeLanguage(languageButton.dataset.language);
   const tabButton = event.target.closest('[data-tab]');
   if (tabButton) return goTo(tabButton.dataset.tab);
   const button = event.target.closest('[data-action]');
+  if (button?.dataset.action === 'battle-tap') return battleInput.click(event);
   if (button && !button.disabled) handleAction(button.dataset.action, button).catch(() => showNotice({ key: 'notice.actionFailed' }, { error: true }));
 });
 
@@ -1296,7 +1328,7 @@ document.querySelector('.brand').addEventListener('click', (event) => { event.pr
 environment.onResume(() => {
   lastPoll = 0; lastPresence = 0;
   if (booting) return;
-  if (pending && !busy && (pending.path === '/battle/tap' || (pending.path === '/presence' && activeBattle()))) sendPending();
+  if (pending && !busy && !pending.recoveryBlocked && combatRecoveryCommand()) sendPending();
   else refreshState();
 });
 window.addEventListener('online', () => { if (pending && !busy) sendPending(); else refreshState(); });

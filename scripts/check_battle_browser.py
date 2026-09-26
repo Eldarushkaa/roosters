@@ -102,7 +102,61 @@ def assert_controls(page, label, essential=True, bottom_inset=0, top_inset=0):
             assert content_bottom <= geometry['scrollHeight'] + 1, (label, item, geometry)
 
 
+def check_touch_gestures(browser, url, clock):
+    """Native touch gestures, not synthetic click(): movement and two fingers."""
+    errors = []
+    context = browser.new_context(viewport={'width': 390, 'height': 844},
+                                  is_mobile=True, has_touch=True)
+    context.route('https://telegram.org/js/telegram-web-app.js', lambda route: route.fulfill(
+        status=200, content_type='application/javascript', body=BRIDGE))
+    context.add_init_script("localStorage.setItem('rooster.v1.guideSeen.v1', '1')")
+    page = context.new_page()
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.goto(url, wait_until='networkidle')
+    starts = []
+    page.on('request', lambda request: starts.append((request.headers.get('idempotency-key'), request.post_data))
+            if request.url.endswith('/api/v1/battle/start') else None)
+
+    def lost_start(route):
+        route.fetch()  # The server creates the fight, but its reply is lost.
+        route.abort('failed')
+
+    context.route('**/api/v1/battle/start', lost_start, times=1)
+    page.locator('[data-action="start-free"]').click()
+    expect(page.locator('[data-action="retry"]')).to_be_visible()
+    battle = server_state(page)['battle']
+    clock.value = battle['starts_at']
+    refresh(page)
+    expect(page.locator('.battle-tap')).to_be_enabled()
+    box = page.locator('.battle-tap').bounding_box()
+    touch = context.new_cdp_session(page)
+    finger = {'id': 1, 'x': box['x'] + box['width'] / 3, 'y': box['y'] + box['height'] / 2}
+    touch.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [finger]})
+    # Sliding a finger must not cancel a hit already made on the combat control.
+    touch.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': [
+        {**finger, 'y': finger['y'] + 60}]})
+    touch.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+    expect(page.locator('.tap-score strong').first).to_have_text('1 / 90')
+    assert len(starts) == 2 and starts[0] == starts[1], 'start must recover automatically with the original UUID/body'
+    assert server_state(page)['battle']['id'] == battle['id'], 'start recovery created another fight'
+    second = {**finger, 'id': 2, 'x': finger['x'] + 60}
+    touch.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [finger]})
+    touch.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [finger, second]})
+    # Both fingers count on contact, without waiting for either to lift.
+    expect(page.locator('.tap-score strong').first).to_have_text('3 / 90')
+    touch.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': [second]})
+    touch.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+    page.locator('.battle-tap').tap()
+    expect(page.locator('.tap-score strong').first).to_have_text('4 / 90')
+    page.wait_for_load_state('networkidle')
+    assert server_state(page)['battle']['you']['taps'] == 4, 'compatibility click duplicated a hit'
+    assert not errors, errors
+    touch.detach()
+    context.close()
+
+
 def exercise(browser, url, clock, artifacts):
+    check_touch_gestures(browser, url, clock)
     errors = []
     sizes = [(360, 640), (390, 844), (430, 932), (360, 560), (320, 568)]
     for width, height in sizes:
@@ -196,14 +250,14 @@ def exercise(browser, url, clock, artifacts):
         page.evaluate("window.savedTap = document.querySelector('.battle-tap')")
         box = page.locator('.battle-tap').bounding_box()
         touch = context.new_cdp_session(page)
-        touch.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [
-            {'x': box['x'] + box['width'] / 2, 'y': box['y'] + box['height'] / 2}]})
+        with page.expect_response(lambda response: response.url.endswith('/api/v1/battle/tap')) as held:
+            touch.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [
+                {'x': box['x'] + box['width'] / 2, 'y': box['y'] + box['height'] / 2}]})
+        assert held.value.json()['state']['battle']['you']['taps'] == 1
         refresh(page)
         page.wait_for_load_state('networkidle')
         assert page.evaluate("savedTap === document.querySelector('.battle-tap') && savedTap.isConnected"), 'poll detached tap control'
-        with page.expect_response(lambda response: response.url.endswith('/api/v1/battle/tap')) as held:
-            touch.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
-        assert held.value.json()['state']['battle']['you']['taps'] == 1
+        touch.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
         touch.detach()
         # Real taps and server totals, including a lost tap response and retry.
         def lost_tap(route):
@@ -302,7 +356,7 @@ def main():
             server.shutdown()
             thread.join(timeout=5)
             server.server_close()
-    print('Battle browser checks passed: 320/360/390/430px, short height, RU/EN, dark/light, shared styles, readable captions, safe areas, reload, scroll, retry, Space, tap cap, waiting state, navigation restoration.')
+    print('Battle browser checks passed: native touch movement/multiple fingers/held input without duplicate clicks, 320/360/390/430px, short height, RU/EN, dark/light, shared styles, readable captions, safe areas, reload, scroll, retry, Space, tap cap, waiting state, navigation restoration.')
     print(f'Screenshots: {args.artifacts_dir}')
 
 

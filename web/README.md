@@ -15,8 +15,9 @@ write recovery; authoritative state/rendering; screen renderers; UI/timer event
 handlers. It imports the dependency-free `i18n.mjs` translation catalog.
 `styles.css` provides responsive layouts from 320 px, visible keyboard
 focus, safe-area spacing, and reduced-motion support. Arena uses the approved
-WebP background and hero; Battle, Gear and Roost keep their existing inline SVG
-artwork. The favicon is a standalone export of the shared rooster icon.
+WebP background; Arena, Battle and Gear compose the v2 rooster atlases through
+`rooster-art.mjs`. Roost keeps its inline SVG artwork. The favicon is a standalone
+export of the shared rooster icon.
 
 ## Shared visual foundation and final consistency pass
 
@@ -421,8 +422,10 @@ resizes, chrome appearance and resume behavior still need physical iOS/Android
 ## Gear progression screen
 
 Gear uses a compact current-fighter summary, vertical `renderUpgradeRow` items,
-then illustrated `renderBreedChoice` entries. Existing rooster/equipment SVGs,
-shared `ui-*` panels/buttons/badges, `--ui-*` tokens and the locale-aware `money()`
+then illustrated `renderBreedChoice` entries. The current fighter and breed previews
+reuse `renderRooster` with the player's live gear; one common catalog frame keeps
+the breed silhouettes at different sizes. Equipment icons, shared `ui-*`
+panels/buttons/badges, `--ui-*` tokens and the locale-aware `money()`
 formatter are reused. `renderGearAction` shares price, availability and retry presentation
 between upgrades and breeds; these helpers stay local to Gear. The old
 `equipment-grid` selector remains for existing browser regressions, with no
@@ -463,7 +466,7 @@ Before matching, the online prize is an example at 50% odds. During v8 combat,
 legacy matches keep fixed prizes. `scripts.check_online_result_browser` covers
 20 mobile views plus history reopening, focus, reload and polling with a disposable DB.
 
-## Породы и экипировка в Arena/Battle
+## Породы и экипировка в Arena/Gear/Battle
 
 `rooster-art.mjs` и `rooster-art.css` собирают утверждённых петухов v2 из
 прозрачных растровых атласов `assets/roosters/`. `renderRooster` принимает
@@ -471,7 +474,8 @@ legacy matches keep fixed prizes. `scripts.check_online_result_browser` covers
 шлем и меч выбираются независимо. Визуальные группы уровней: 0, 1–2, 3–4,
 5–7, 8–9, 10; игровые параметры каждого уровня определяет сервер.
 
-Arena передаёт текущего игрока; Battle передаёт сохранённые `battle.you` и
+Arena и Gear передают текущего игрока; карточки пород Gear меняют только
+`breed_id`, сохраняя его экипировку. Battle передаёт сохранённые `battle.you` и
 `battle.opponent`. Не подменять их текущими данными игрока при polling/reload.
 Старые снимки без экипировки получают базовый комплект, неизвестная порода —
 безопасный вид Дворового. Сохраняются `.fighters`, `.fighter-motion` и hit-effects

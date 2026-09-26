@@ -8,11 +8,12 @@ import { createI18n, botNameKeys, LANGUAGE_STORAGE_KEY } from '../i18n.mjs';
 import { icon, iconText } from '../icons.mjs';
 import { createFeedback } from '../feedback.mjs';
 import { renderRooster, roosterBattleFrame } from '../rooster-art.mjs';
+import { createBattleInput } from '../battle-input.mjs';
 
 const source = (await readFile(new URL('../app.js', import.meta.url), 'utf8'))
   .replace(/^import .* from '\.\/i18n\.mjs';\n/m, '')
   .replace(/^import .* from '\.\/environment\.mjs';\n/m, '')
-  .replace(/^import .* from '\.\/(icons|feedback|guide|rooster-art)\.mjs';\n/gm, '')
+  .replace(/^import .* from '\.\/(icons|feedback|guide|rooster-art|battle-input)\.mjs';\n/gm, '')
   .replace(/\nboot\(\);\s*$/, '\n');
 const playerState = (id = 'dev:tester') => ({
   server_time: Date.now() / 1000,
@@ -41,12 +42,13 @@ function harness({ fetch, entries = {}, localEntries = {}, initData = '' } = {})
   const intervals = [];
   const timeouts = new Map();
   let nextTimeout = 0;
+  let timerNow = 0;
   const listeners = new Map();
   const guideCalls = [];
   let guideMock;
   const sandbox = {
     createAppEnvironment: () => ({ telegram: app, start() { app.ready(); app.expand(); }, onResume(callback) { listeners.set('visibilitychange', callback); } }),
-    icon, iconText, renderRooster, roosterBattleFrame, createFeedback: options => createFeedback({...options, win: {}, doc: {querySelector: () => null}}),
+    icon, iconText, renderRooster, roosterBattleFrame, createBattleInput, createFeedback: options => createFeedback({...options, win: {}, doc: {querySelector: () => null}}),
     createGuide(options) {
       let available = false;
       let opened = false;
@@ -78,7 +80,7 @@ function harness({ fetch, entries = {}, localEntries = {}, initData = '' } = {})
       hidden: false, activeElement: null, documentElement: {}, addEventListener(name, handler) { listeners.set(name, handler); }, querySelectorAll: () => [],
       querySelector(selector) { if (!elements.has(selector)) elements.set(selector, element()); return elements.get(selector); },
     },
-    setTimeout(fn, delay) { const id = ++nextTimeout; timeouts.set(id, { fn, delay }); return id; },
+    setTimeout(fn, delay) { const id = ++nextTimeout; timeouts.set(id, { fn, delay, at: timerNow + delay }); return id; },
     clearTimeout(id) { timeouts.delete(id); },
     setInterval(fn, delay) { intervals.push({ fn, delay }); return intervals.length; },
   };
@@ -108,7 +110,21 @@ function harness({ fetch, entries = {}, localEntries = {}, initData = '' } = {})
       disableRefresh() { refreshState = async () => { globalThis.refreshed = true; }; },
     };
   `).runInContext(sandbox);
-  return { ...sandbox, session, local, app, context: sandbox, intervals, timeouts, listeners, guideMock, guideCalls };
+  async function advanceTimers(milliseconds) {
+    const until = timerNow + milliseconds;
+    for (;;) {
+      const entry = [...timeouts.entries()].filter(([, timer]) => timer.at <= until).sort((a, b) => a[1].at - b[1].at)[0];
+      if (!entry) break;
+      const [id, timer] = entry;
+      timeouts.delete(id);
+      timerNow = timer.at;
+      timer.fn();
+      // Flush request/JSON/retry continuations before selecting the next timer.
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    timerNow = until;
+  }
+  return { ...sandbox, session, local, app, context: sandbox, intervals, timeouts, listeners, guideMock, guideCalls, advanceTimers };
 }
 
 test('lost purchase response retries the identical UUID and body only once', async () => {
@@ -866,6 +882,75 @@ test('a stuck tap request times out before the whole battle and retains its UUID
   assert.ok([...env.timeouts.values()].some(item => item.delay === 500));
 });
 
+test('a three-second combat reply survives recovery and releases the next buffered batch', async () => {
+  const state = playerState();
+  state.battle = { id: 'slow-recovery', status: 'active', starts_at: Date.now() / 1000 - 1,
+    ends_at: Date.now() / 1000 + 9, tap_cap: 90, you: { taps: 0 }, opponent: { taps: 0 } };
+  const sent = [];
+  const committed = new Map();
+  const env = harness({ fetch: (url, options) => {
+    const key = options.headers['Idempotency-Key'];
+    sent.push({ url, key, body: options.body });
+    if (!committed.has(key)) committed.set(key, JSON.parse(options.body).taps);
+    return new Promise((resolve, reject) => {
+      // Both original and replay take 3s: a fixed 2.5s timeout would abort
+      // forever. The connection recovers by the time the next batch is sent.
+      const responseTimer = env.setTimeout(() => {
+        const next = structuredClone(state);
+        next.battle.you.taps = [...committed.values()].reduce((sum, taps) => sum + taps, 0);
+        resolve(reply(200, { state: next, result: {} }));
+      }, sent.length <= 2 ? 3000 : 100);
+      options.signal.addEventListener('abort', () => {
+        env.clearTimeout(responseTimer);
+        reject({ name: 'AbortError' });
+      });
+    });
+  } });
+  env.client.setState(state);
+  const flush = env.intervals.find(item => item.delay === 400).fn;
+  await env.client.handleAction('battle-tap');
+  const original = flush();
+  await env.advanceTimers(2500);
+  await original;
+  await env.client.handleAction('battle-tap');
+  await env.client.handleAction('battle-tap');
+  assert.equal(env.client.getBattleBuffer().count, 2);
+  await env.advanceTimers(500);
+  assert.deepEqual(sent[0], sent[1], 'Recovery must keep the exact committed UUID/body');
+  await env.advanceTimers(3000);
+  assert.equal(env.client.getPending(), null, 'The slow successful response must be allowed to arrive');
+  assert.equal(env.client.getState().battle.you.taps, 1);
+  const queued = flush();
+  await env.advanceTimers(100);
+  await queued;
+  assert.equal(sent.length, 3);
+  assert.notEqual(sent[2].key, sent[0].key);
+  assert.equal(JSON.parse(sent[2].body).taps, 2);
+  assert.equal(env.client.getState().battle.you.taps, 3, 'No replay double-counts the first tap');
+});
+
+test('combat timeout growth remains bounded when every attempt stalls', async () => {
+  const state = playerState();
+  state.battle = { id: 'bounded-recovery', status: 'active', starts_at: Date.now() / 1000 - 1,
+    ends_at: Date.now() / 1000 + 9, tap_cap: 90, you: { taps: 0 }, opponent: { taps: 0 } };
+  const sent = [];
+  const env = harness({ fetch: (url, options) => new Promise((resolve, reject) => {
+    sent.push({ key: options.headers['Idempotency-Key'], body: options.body });
+    options.signal.addEventListener('abort', () => reject({ name: 'AbortError' }));
+  }) });
+  env.client.setState(state);
+  const first = env.client.mutate('/battle/tap', { battle_id: state.battle.id, taps: 1 }, { quiet: true });
+  for (const [timeout, backoff] of [[2500, 500], [5000, 1000], [8000, 2000], [8000, 2000]]) {
+    assert.ok([...env.timeouts.values()].some(item => item.delay === timeout));
+    await env.advanceTimers(timeout);
+    await env.advanceTimers(backoff);
+  }
+  await first;
+  assert.equal(sent.length, 5);
+  for (const request of sent) assert.deepEqual(request, sent[0]);
+  assert.ok([...env.timeouts.values()].some(item => item.delay === 8000));
+});
+
 test('a failed presence during combat also recovers without disabling taps', async () => {
   const state = playerState();
   state.battle = { id: 'presence-taps', status: 'active', starts_at: Date.now() / 1000 - 1,
@@ -891,6 +976,107 @@ test('combat recovery does not automatically repeat economic commands', async ()
   await env.client.mutate('/battle/start', { mode: 'bot', stake_minor: 1000 });
   assert.ok(env.client.getPending());
   assert.equal([...env.timeouts.values()].some(item => [500, 1000, 2000].includes(item.delay)), false);
+});
+
+for (const [path, body] of [
+  ['/battle/start', { mode: 'bot', stake_minor: 1000, expected_power: 100 }],
+  ['/queue/join', { stake_minor: 1000 }],
+]) {
+  test(`a state-confirmed battle recovers a lost ${path} answer without disabling input`, async () => {
+    const active = playerState();
+    active.battle = { id: 'discovered-battle', status: 'active', starts_at: Date.now() / 1000 - 1,
+      ends_at: Date.now() / 1000 + 9, tap_cap: 90, you: { taps: 0 }, opponent: { taps: 0 } };
+    const sent = [];
+    const env = harness({ fetch: async (url, options) => {
+      sent.push({ url, key: options.headers['Idempotency-Key'], body: options.body });
+      if (sent.length === 1) throw new TypeError('Response lost after commit');
+      const next = structuredClone(active);
+      if (url.endsWith('/battle/tap')) next.battle.you.taps = JSON.parse(options.body).taps;
+      return reply(200, { state: next, result: {} });
+    } });
+    env.client.setState(playerState());
+    await env.client.mutate(path, body);
+    assert.equal(env.timeouts.size, 0, 'An uncertain economic action stays manual before a battle is confirmed');
+    env.client.acceptState(active);
+    env.client.acceptState(active);
+    assert.doesNotMatch(actionTag(env.client.renderBattle(active.battle), 'battle-tap'), /disabled/);
+    await env.client.handleAction('battle-tap');
+    assert.equal(env.client.getBattleBuffer().count, 1);
+    assert.equal(env.timeouts.size, 1, 'Polling must not duplicate or postpone a scheduled recovery');
+    await env.advanceTimers(500);
+    assert.deepEqual(sent[0], sent[1]);
+    assert.equal(env.client.getPending(), null);
+    await env.intervals.find(item => item.delay === 400).fn();
+    assert.equal(sent[2].url, '/api/v1/battle/tap');
+    assert.equal(JSON.parse(sent[2].body).taps, 1);
+    assert.equal(env.client.getState().battle.you.taps, 1);
+  });
+
+  test(`hidden ${path} recovery waits for resume and preserves its UUID`, async () => {
+    const active = playerState();
+    active.battle = { id: 'hidden-discovery', status: 'active', starts_at: Date.now() / 1000 - 1,
+      ends_at: Date.now() / 1000 + 9, tap_cap: 90, you: { taps: 0 }, opponent: { taps: 0 } };
+    const sent = [];
+    const env = harness({ fetch: async (url, options) => {
+      sent.push({ url, key: options.headers['Idempotency-Key'], body: options.body });
+      if (sent.length === 1) throw new TypeError('Response lost after commit');
+      return reply(200, { state: active, result: {} });
+    } });
+    env.client.setState(playerState());
+    await env.client.mutate(path, body);
+    env.document.hidden = true;
+    env.client.acceptState(active);
+    assert.equal(env.timeouts.size, 0);
+    assert.equal(sent.length, 1);
+    env.document.hidden = false;
+    env.listeners.get('visibilitychange')();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(sent[0], sent[1]);
+    assert.equal(env.client.getPending(), null);
+  });
+
+  test(`${path} authentication failure stays pending without automatic combat retries`, async () => {
+    const active = playerState('tg:42');
+    active.battle = { id: 'auth-discovery', status: 'active', starts_at: Date.now() / 1000 - 1,
+      ends_at: Date.now() / 1000 + 9, tap_cap: 90, you: { taps: 0 }, opponent: { taps: 0 } };
+    const sent = [];
+    const env = harness({ initData: 'expired-launch-data', fetch: async (url) => {
+      sent.push(url);
+      return reply(401, { error: { code: 'invalid_telegram_auth' } });
+    } });
+    env.client.setState(playerState('tg:42'));
+    await env.client.mutate(path, body);
+    const original = env.client.getPending().key;
+    env.client.acceptState(active);
+    env.listeners.get('visibilitychange')();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(env.timeouts.size, 0);
+    assert.equal(env.client.getPending().key, original);
+    assert.deepEqual(sent, [`/api/v1${path}`, '/api/v1/auth/telegram']);
+  });
+
+  test(`a definite ${path} rejection clears its command instead of starting combat recovery`, async () => {
+    const env = harness({ fetch: async () => reply(409, { error: { code: 'battle_active' } }) });
+    env.client.setState(playerState());
+    env.client.disableRefresh();
+    await env.client.mutate(path, body);
+    assert.equal(env.client.getPending(), null);
+    assert.equal(env.timeouts.size, 0);
+    assert.equal(env.context.refreshed, true);
+  });
+}
+
+test('an active battle does not automatically retry an unrelated purchase', async () => {
+  const env = harness({ fetch: async () => { throw new TypeError('offline'); } });
+  env.client.setState(playerState());
+  await env.client.mutate('/gear/upgrade', { slot: 'sword' });
+  const active = playerState();
+  active.battle = { id: 'other-device-battle', status: 'active', starts_at: Date.now() / 1000 - 1,
+    ends_at: Date.now() / 1000 + 9, tap_cap: 90, you: { taps: 0 }, opponent: { taps: 0 } };
+  env.client.acceptState(active);
+  assert.equal(env.timeouts.size, 0);
+  assert.equal(env.client.getPending().path, '/gear/upgrade');
+  assert.match(actionTag(env.client.renderBattle(active.battle), 'battle-tap'), /disabled/);
 });
 
 test('hidden combat pauses retries and resumes the same pending batch when visible', async () => {

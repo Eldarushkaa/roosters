@@ -119,6 +119,9 @@
   padding: var(--ui-space-3);
   user-select: none;
   -webkit-user-select: none;
+  /* Only the combat pad owns touch gestures; fight details still scroll. */
+  touch-action: none;
+  -webkit-touch-callout: none;
 }
 .battle-tap > strong { font-size: var(--ui-text-headline); }
 .battle-tap > span { font: 700 var(--ui-text-sm)/var(--ui-leading-body) var(--ui-font-body); }

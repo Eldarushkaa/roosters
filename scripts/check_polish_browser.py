@@ -103,12 +103,12 @@ def exercise(browser, url, app, clock, artifacts):
                 seed(app, page, balance_minor=100000, owned_breeds=['yard', 'copper'])
                 count = page.evaluate('hapticCalls.length')
                 before = server_state(page)
-                result = command(page, '[data-slot=sword]', 'gear/upgrade')['state']
+                result = command(page, '[data-action=upgrade][data-slot=sword]', 'gear/upgrade')['state']
                 expect(page.locator('.gear-feedback')).to_be_visible()
                 page.wait_for_function('hapticCalls.length === ' + str(count + 1))
                 assert result['player']['balance_minor'] == before['player']['balance_minor'] - before['economy']['upgrade_costs_minor']['sword']
                 shot('upgrade')
-                command(page, '[data-breed=copper]', 'breed/buy')
+                command(page, '[data-action=breed][data-breed=copper]', 'breed/buy')
                 expect(page.locator('[data-breed-id=copper]')).to_have_attribute('data-state', 'complete')
                 assert page.locator('[data-breed-id=copper]').evaluate("n => n.classList.contains('is-equipped') && n.classList.contains('ui-panel')")
                 page.wait_for_function('hapticCalls.length === ' + str(count + 2))
@@ -125,7 +125,7 @@ def exercise(browser, url, app, clock, artifacts):
                 page.emulate_media(reduced_motion='reduce')
                 page.evaluate("() => { Telegram.WebApp.HapticFeedback.impactOccurred = () => { throw Error('native unavailable'); }; }")
                 tab(page, 'gear')
-                command(page, '[data-slot=helmet]', 'gear/upgrade')
+                command(page, '[data-action=upgrade][data-slot=helmet]', 'gear/upgrade')
                 expect(page.locator('[data-slot-id=helmet] .gear-feedback')).to_be_visible()
                 assert page.evaluate("document.getAnimations().filter(a => a.playState === 'running').length") == 0
                 assert server_state(page)['player']['gear']['helmet'] == 1

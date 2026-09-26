@@ -23,13 +23,14 @@ scale and independent equipment selection. Levels map to visual milestones:
 0 → 0, 1–2 → 1, 3–4 → 2, 5–7 → 3, 8–9 → 4, 10 → 5. These are appearance
 groups only; every upgrade retains the existing server power/price rules.
 
-Use `renderRooster(fighter, {label, className, priority, frame})` for Arena and Battle.
+Use `renderRooster(fighter, {label, className, priority, frame})` for Arena, Gear and Battle.
 The fixed common stage preserves the size contrast between frail Yard, stocky
 Copper, wiry Storm and heavy Ember. The sword is drawn behind the closed fist;
 the helmet shell overlays the bare head. Battle passes one common
 `roosterBattleFrame([you, opponent])` to both render calls to fit complete
 silhouettes without making a frail bird as large as a heavyweight. Mirroring
-happens on the whole figure.
+happens on the whole figure. Gear uses the live player's equipment for both
+the current fighter and every breed preview, with one common catalog frame.
 Never crop or recolor the assets at runtime to infer equipment from power.
 
 Humans use the exact saved equipment levels. Bots receive a stable server-side
